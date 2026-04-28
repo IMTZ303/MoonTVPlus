@@ -101,6 +101,7 @@ export default async function RootLayout({
   let customAdFilterVersion = 0;
   let musicFeatureEnabled = false;
   let suwayomiEnabled = false;
+  let booksEnabled = process.env.OPDS_ENABLED === 'true' && !!(process.env.OPDS_URL || process.env.NEXT_PUBLIC_OPDS_URL || process.env.OPDS_SOURCES_JSON);
   let musicProxyEnabled = true;
   let advancedRecommendationEnabled = false;
   let userFeatureAccess =
@@ -174,6 +175,14 @@ export default async function RootLayout({
     suwayomiEnabled = !!(
       config.SuwayomiConfig?.Enabled &&
       config.SuwayomiConfig?.ServerURL
+    );
+    // 电子书功能配置
+    const opdsConfig = config.OPDSConfig;
+    const rawOpdsSources = opdsConfig?.Sources;
+    const opdsSources = Array.isArray(rawOpdsSources) ? rawOpdsSources : [];
+    booksEnabled = !!(
+      opdsConfig?.Enabled &&
+      opdsSources.some((source) => source?.enabled !== false && !!source?.url)
     );
     // 高级推荐功能配置：存在已启用视频源脚本时显示
     advancedRecommendationEnabled =
@@ -257,6 +266,7 @@ export default async function RootLayout({
     MUSIC_ENABLED: musicFeatureEnabled && userFeatureAccess.music,
     MUSIC_PROXY_ENABLED: musicProxyEnabled,
     SUWAYOMI_ENABLED: suwayomiEnabled && userFeatureAccess.manga,
+    BOOKS_ENABLED: booksEnabled && userFeatureAccess.books,
     NETDISK_SEARCH_ENABLED: userFeatureAccess.netdisk_search,
     MAGNET_SEARCH_ENABLED: userFeatureAccess.magnet_search,
     MAGNET_SAVE_PRIVATE_LIBRARY_ENABLED:

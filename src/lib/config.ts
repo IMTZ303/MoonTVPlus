@@ -663,6 +663,49 @@ export function configSelfCheck(adminConfig: AdminConfig): AdminConfig {
     adminConfig.SuwayomiConfig.MaxSources = 10;
   }
 
+  if (!adminConfig.OPDSConfig) {
+    adminConfig.OPDSConfig = {
+      Enabled: process.env.OPDS_ENABLED === 'true',
+      Sources: (() => {
+        const json = process.env.OPDS_SOURCES_JSON;
+        if (json) {
+          try {
+            const parsed = JSON.parse(json);
+            if (Array.isArray(parsed)) return parsed;
+          } catch {
+            // ignore invalid env json
+          }
+        }
+
+        const envUrl = process.env.OPDS_URL || process.env.NEXT_PUBLIC_OPDS_URL;
+        if (!envUrl) return [];
+
+        return [{
+          id: 'default',
+          name: process.env.OPDS_NAME || '默认书源',
+          url: envUrl,
+          enabled: true,
+          authMode: (process.env.OPDS_AUTH_MODE as 'none' | 'basic' | 'header' | undefined) || 'none',
+          username: process.env.OPDS_USERNAME || '',
+          password: process.env.OPDS_PASSWORD || '',
+          headerName: process.env.OPDS_HEADER_NAME || '',
+          headerValue: process.env.OPDS_HEADER_VALUE || '',
+          searchTemplate: process.env.OPDS_SEARCH_TEMPLATE || '',
+        }];
+      })(),
+      CacheTTL: Number(process.env.OPDS_CACHE_TTL_MS || 10 * 60 * 1000),
+    };
+  }
+  if (adminConfig.OPDSConfig.Enabled === undefined) {
+    adminConfig.OPDSConfig.Enabled = false;
+  }
+  if (!Array.isArray(adminConfig.OPDSConfig.Sources)) {
+    adminConfig.OPDSConfig.Sources = [];
+  }
+  if (adminConfig.OPDSConfig.CacheTTL === undefined || Number.isNaN(adminConfig.OPDSConfig.CacheTTL)) {
+    adminConfig.OPDSConfig.CacheTTL = Number(process.env.OPDS_CACHE_TTL_MS || 10 * 60 * 1000);
+  }
+
   if (!adminConfig.NetDiskConfig) {
     adminConfig.NetDiskConfig = {
       Quark: {

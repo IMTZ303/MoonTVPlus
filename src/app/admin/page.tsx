@@ -24,6 +24,7 @@ import { CSS } from '@dnd-kit/utilities';
 import {
   AlertCircle,
   AlertTriangle,
+  BookMarked,
   BookOpen,
   Bot,
   Cat,
@@ -44,12 +45,15 @@ import {
   UserPlus,
   Users,
   Video,
+  Plus,
+  Trash2,
 } from 'lucide-react';
 import { GripVertical } from 'lucide-react';
 import { memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import { AdminConfig, AdminConfigResult } from '@/lib/admin.types';
+import { BookSource } from '@/lib/book.types';
 import { getAuthInfoFromBrowserCookie } from '@/lib/auth';
 import {
   ALL_FEATURE_PERMISSION_KEYS,
@@ -11231,6 +11235,297 @@ const SuwayomiConfigComponent = ({
   );
 };
 
+
+const OPDSConfigComponent = ({
+  config,
+  refreshConfig,
+}: {
+  config: AdminConfig | null;
+  refreshConfig: () => Promise<void>;
+}) => {
+  const { alertModal, showAlert, hideAlert } = useAlertModal();
+  const { isLoading, withLoading } = useLoadingState();
+  const [enabled, setEnabled] = useState(false);
+  const [cacheTTL, setCacheTTL] = useState(10 * 60 * 1000);
+  const [sources, setSources] = useState<BookSource[]>([]);
+
+  useEffect(() => {
+    if (config?.OPDSConfig) {
+      setEnabled(config.OPDSConfig.Enabled || false);
+      setCacheTTL(config.OPDSConfig.CacheTTL || 10 * 60 * 1000);
+      setSources(
+        (config.OPDSConfig.Sources || []).map((item, index) => ({
+          id: item.id || `source_${index + 1}`,
+          name: item.name || `书源 ${index + 1}`,
+          url: item.url || '',
+          enabled: item.enabled !== false,
+          authMode: item.authMode || 'none',
+          username: item.username || '',
+          password: item.password || '',
+          headerName: item.headerName || '',
+          headerValue: item.headerValue || '',
+          searchTemplate: item.searchTemplate || '',
+          preferFormat: item.preferFormat || ['epub', 'pdf'],
+          language: item.language || '',
+        }))
+      );
+    }
+  }, [config]);
+
+  const updateSource = (index: number, patch: Partial<BookSource>) => {
+    setSources((prev) => prev.map((item, idx) => (idx === index ? { ...item, ...patch } : item)));
+  };
+
+  const addSource = () => {
+    setSources((prev) => [
+      ...prev,
+      {
+        id: `source_${prev.length + 1}`,
+        name: `书源 ${prev.length + 1}`,
+        url: '',
+        enabled: true,
+        authMode: 'none',
+        username: '',
+        password: '',
+        headerName: '',
+        headerValue: '',
+        searchTemplate: '',
+        preferFormat: ['epub', 'pdf'],
+        language: '',
+      },
+    ]);
+  };
+
+  const removeSource = (index: number) => {
+    setSources((prev) => prev.filter((_, idx) => idx !== index));
+  };
+
+  const buildConfig = () => ({
+    Enabled: enabled,
+    CacheTTL: Math.max(60_000, cacheTTL || 10 * 60 * 1000),
+    Sources: sources
+      .map((source, index) => ({
+        id: source.id?.trim() || `source_${index + 1}`,
+        name: source.name?.trim() || `书源 ${index + 1}`,
+        url: source.url?.trim() || '',
+        enabled: source.enabled !== false,
+        authMode: source.authMode || 'none',
+        username: source.authMode === 'none' ? '' : source.username?.trim() || '',
+        password: source.authMode === 'none' ? '' : source.password || '',
+        headerName: source.authMode === 'header' ? source.headerName?.trim() || '' : '',
+        headerValue: source.authMode === 'header' ? source.headerValue || '' : '',
+        searchTemplate: source.searchTemplate?.trim() || '',
+        preferFormat: source.preferFormat?.length ? source.preferFormat : ['epub', 'pdf'],
+        language: source.language?.trim() || '',
+      }))
+      .filter((source) => !!source.url),
+  });
+
+  const handleSave = async () => {
+    await withLoading('saveOPDSConfig', async () => {
+      try {
+        if (!config) throw new Error('配置未加载');
+        const response = await fetch('/api/admin/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ...config,
+            OPDSConfig: buildConfig(),
+          }),
+        });
+        if (!response.ok) {
+          const data = await response.json();
+          throw new Error(data.error || '保存失败');
+        }
+        showSuccess('电子书 OPDS 配置已保存', showAlert);
+        await refreshConfig();
+      } catch (error) {
+        showError(error instanceof Error ? error.message : '保存失败', showAlert);
+        throw error;
+      }
+    });
+  };
+
+  const handleTest = async () => {
+    await withLoading('testOPDSConfig', async () => {
+      try {
+        const response = await fetch('/api/admin/opds', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(buildConfig()),
+        });
+        const data = await response.json();
+        if (!response.ok || !data.success) {
+          throw new Error(data.message || data.error || '测试连接失败');
+        }
+        const summary = Array.isArray(data.results)
+          ? data.results
+              .map((item: { name: string; capability: { catalogSupported: boolean; searchSupported: boolean; lastError?: string } }) =>
+                `${item.name}: 分类${item.capability.catalogSupported ? '√' : '×'} / 搜索${item.capability.searchSupported ? '√' : '×'}${item.capability.lastError ? ` (${item.capability.lastError})` : ''}`
+              )
+              .join('\n')
+          : '';
+        showSuccess(summary || data.message || '测试成功', showAlert);
+      } catch (error) {
+        showError(error instanceof Error ? error.message : '测试连接失败', showAlert);
+        throw error;
+      }
+    });
+  };
+
+  return (
+    <div className='space-y-6'>
+      <div className='bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-4'>
+        <h3 className='text-sm font-medium text-amber-900 dark:text-amber-100 mb-2'>关于电子书馆 / OPDS</h3>
+        <div className='text-sm text-amber-800 dark:text-amber-200 space-y-1'>
+          <p>• 支持多书源，每个源可独立配置认证、搜索模板与默认格式偏好。</p>
+          <p>• 有些源只支持分类浏览，有些源只支持搜索，测试连接会自动探测能力。</p>
+          <p>• 目前前台优先支持 EPUB 在线阅读，PDF 走内嵌预览。</p>
+        </div>
+      </div>
+
+      <div className='flex items-center justify-between py-3 border-b border-gray-200 dark:border-gray-700'>
+        <div>
+          <h3 className='text-sm font-medium text-gray-900 dark:text-white'>启用电子书馆</h3>
+          <p className='text-xs text-gray-500 dark:text-gray-400 mt-1'>关闭后不会展示 OPDS 电子书入口。</p>
+        </div>
+        <button
+          onClick={() => setEnabled(!enabled)}
+          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${enabled ? 'bg-amber-600' : 'bg-gray-200 dark:bg-gray-700'}`}
+        >
+          <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${enabled ? 'translate-x-6' : 'translate-x-1'}`} />
+        </button>
+      </div>
+
+      <div>
+        <label className='block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2'>Feed 缓存时长（毫秒）</label>
+        <input
+          type='number'
+          min='60000'
+          value={cacheTTL}
+          onChange={(e) => setCacheTTL(parseInt(e.target.value) || 10 * 60 * 1000)}
+          className='w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100'
+        />
+      </div>
+
+      <div className='space-y-4'>
+        <div className='flex items-center justify-between'>
+          <h3 className='text-sm font-medium text-gray-900 dark:text-white'>书源列表</h3>
+          <button type='button' onClick={addSource} className={buttonStyles.primary}>
+            <Plus size={16} className='inline mr-1' />添加书源
+          </button>
+        </div>
+
+        {sources.length === 0 && (
+          <div className='rounded-lg border border-dashed border-gray-300 dark:border-gray-600 p-4 text-sm text-gray-500 dark:text-gray-400'>
+            暂无 OPDS 书源，点击“添加书源”开始配置。
+          </div>
+        )}
+
+        {sources.map((source, index) => (
+          <div key={`${source.id}-${index}`} className='rounded-xl border border-gray-200 dark:border-gray-700 p-4 space-y-4'>
+            <div className='flex items-center justify-between gap-3'>
+              <div className='text-sm font-medium text-gray-900 dark:text-white'>书源 #{index + 1}</div>
+              <div className='flex items-center gap-2'>
+                <button
+                  type='button'
+                  onClick={() => updateSource(index, { enabled: source.enabled === false })}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${source.enabled !== false ? 'bg-green-600' : 'bg-gray-200 dark:bg-gray-700'}`}
+                >
+                  <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${source.enabled !== false ? 'translate-x-6' : 'translate-x-1'}`} />
+                </button>
+                <button type='button' onClick={() => removeSource(index)} className={buttonStyles.danger}>
+                  <Trash2 size={16} />
+                </button>
+              </div>
+            </div>
+
+            <div className='grid grid-cols-1 gap-4 md:grid-cols-2'>
+              <div>
+                <label className='block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2'>书源 ID</label>
+                <input type='text' value={source.id} onChange={(e) => updateSource(index, { id: e.target.value })} className='w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100' />
+              </div>
+              <div>
+                <label className='block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2'>书源名称</label>
+                <input type='text' value={source.name} onChange={(e) => updateSource(index, { name: e.target.value })} className='w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100' />
+              </div>
+            </div>
+
+            <div>
+              <label className='block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2'>根地址</label>
+              <input type='text' value={source.url} onChange={(e) => updateSource(index, { url: e.target.value })} placeholder='https://example.com/opds' className='w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100' />
+            </div>
+
+            <div className='grid grid-cols-1 gap-4 md:grid-cols-3'>
+              <div>
+                <label className='block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2'>认证方式</label>
+                <select value={source.authMode || 'none'} onChange={(e) => updateSource(index, { authMode: e.target.value as BookSource['authMode'] })} className='w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100'>
+                  <option value='none'>无认证</option>
+                  <option value='basic'>Basic Auth</option>
+                  <option value='header'>自定义 Header</option>
+                </select>
+              </div>
+              <div>
+                <label className='block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2'>语言</label>
+                <input type='text' value={source.language || ''} onChange={(e) => updateSource(index, { language: e.target.value })} placeholder='zh / en' className='w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100' />
+              </div>
+              <div>
+                <label className='block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2'>搜索模板</label>
+                <input type='text' value={source.searchTemplate || ''} onChange={(e) => updateSource(index, { searchTemplate: e.target.value })} placeholder='https://...{searchTerms}' className='w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100' />
+              </div>
+            </div>
+
+            {source.authMode === 'basic' && (
+              <div className='grid grid-cols-1 gap-4 md:grid-cols-2'>
+                <div>
+                  <label className='block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2'>用户名</label>
+                  <input type='text' value={source.username || ''} onChange={(e) => updateSource(index, { username: e.target.value })} className='w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100' />
+                </div>
+                <div>
+                  <label className='block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2'>密码</label>
+                  <input type='password' value={source.password || ''} onChange={(e) => updateSource(index, { password: e.target.value })} className='w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100' />
+                </div>
+              </div>
+            )}
+
+            {source.authMode === 'header' && (
+              <div className='grid grid-cols-1 gap-4 md:grid-cols-2'>
+                <div>
+                  <label className='block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2'>Header 名称</label>
+                  <input type='text' value={source.headerName || ''} onChange={(e) => updateSource(index, { headerName: e.target.value })} className='w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100' />
+                </div>
+                <div>
+                  <label className='block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2'>Header 值</label>
+                  <input type='password' value={source.headerValue || ''} onChange={(e) => updateSource(index, { headerValue: e.target.value })} className='w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100' />
+                </div>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+
+      <div className='flex gap-3'>
+        <button onClick={handleTest} disabled={isLoading('testOPDSConfig')} className={buttonStyles.primary}>
+          {isLoading('testOPDSConfig') ? '测试中...' : '测试书源'}
+        </button>
+        <button onClick={handleSave} disabled={isLoading('saveOPDSConfig')} className={buttonStyles.success}>
+          {isLoading('saveOPDSConfig') ? '保存中...' : '保存 OPDS 配置'}
+        </button>
+      </div>
+
+      <AlertModal
+        isOpen={alertModal.isOpen}
+        onClose={hideAlert}
+        type={alertModal.type}
+        title={alertModal.title}
+        message={alertModal.message}
+        timer={alertModal.timer}
+        showConfirm={alertModal.showConfirm}
+      />
+    </div>
+  );
+};
+
 const XiaoyaConfigComponent = ({
   config,
   refreshConfig,
@@ -13908,6 +14203,7 @@ function AdminPageClient() {
     embyConfig: false,
     xiaoyaConfig: false,
     suwayomiConfig: false,
+    opdsConfig: false,
     animeSubscription: false,
     aiConfig: false,
     liveSource: false,
@@ -14309,6 +14605,17 @@ function AdminPageClient() {
               onToggle={() => toggleTab('suwayomiConfig')}
             >
               <SuwayomiConfigComponent config={config} refreshConfig={fetchConfig} />
+            </CollapsibleTab>
+
+            <CollapsibleTab
+              title='电子书配置'
+              icon={
+                <BookMarked size={20} className='text-gray-600 dark:text-gray-400' />
+              }
+              isExpanded={expandedTabs.opdsConfig}
+              onToggle={() => toggleTab('opdsConfig')}
+            >
+              <OPDSConfigComponent config={config} refreshConfig={fetchConfig} />
             </CollapsibleTab>
 
             {/* 电视直播源配置标签 */}

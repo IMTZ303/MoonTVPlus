@@ -279,6 +279,24 @@ export interface AdminConfig {
     SourceIds?: string[]; // 限制可用源
     MaxSources?: number; // 搜索时最多查询多少个源
   };
+  OPDSConfig?: {
+    Enabled: boolean; // 是否启用电子书馆
+    Sources?: Array<{
+      id: string;
+      name: string;
+      url: string;
+      enabled?: boolean;
+      authMode?: 'none' | 'basic' | 'header';
+      username?: string;
+      password?: string;
+      headerName?: string;
+      headerValue?: string;
+      searchTemplate?: string;
+      preferFormat?: Array<'epub' | 'pdf'>;
+      language?: string;
+    }>;
+    CacheTTL?: number;
+  };
   EmailConfig?: {
     enabled: boolean; // 是否启用邮件通知
     provider: 'smtp' | 'resend'; // 邮件发送方式

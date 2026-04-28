@@ -2,7 +2,7 @@
 
 'use client';
 
-import { BookOpen, Bot, ChevronRight, Link as LinkIcon, ListVideo, Music } from 'lucide-react';
+import { BookMarked, BookOpen, Bot, ChevronRight, Link as LinkIcon, ListVideo, Music } from 'lucide-react';
 import Link from 'next/link';
 import { Suspense, useEffect, useState } from 'react';
 
@@ -66,6 +66,7 @@ function HomeClient() {
   const [sourceSearchEnabled, setSourceSearchEnabled] = useState(true);
   const [musicEnabled, setMusicEnabled] = useState(false);
   const [mangaEnabled, setMangaEnabled] = useState(false);
+  const [booksEnabled, setBooksEnabled] = useState(false);
   const [showDirectPlayDialog, setShowDirectPlayDialog] = useState(false);
   const [directPlayUrl, setDirectPlayUrl] = useState('');
   const [directPlaySubmitting, setDirectPlaySubmitting] = useState(false);
@@ -296,6 +297,14 @@ function HomeClient() {
     if (typeof window !== 'undefined') {
       const enabled = !!(window as any).RUNTIME_CONFIG?.SUWAYOMI_ENABLED;
       setMangaEnabled(enabled);
+    }
+  }, []);
+
+  // 检查电子书功能是否启用
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const enabled = !!(window as any).RUNTIME_CONFIG?.BOOKS_ENABLED;
+      setBooksEnabled(enabled);
     }
   }, []);
 
@@ -773,6 +782,17 @@ function HomeClient() {
                     title='漫画展馆'
                   >
                     <BookOpen size={18} />
+                  </button>
+                </Link>
+              )}
+
+              {booksEnabled && (
+                <Link href='/books'>
+                  <button
+                    className='p-1.5 rounded-lg text-amber-500 hover:text-amber-600 transition-colors'
+                    title='电子书馆'
+                  >
+                    <BookMarked size={18} />
                   </button>
                 </Link>
               )}
