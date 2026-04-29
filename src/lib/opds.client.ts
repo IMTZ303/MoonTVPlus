@@ -50,6 +50,8 @@ interface ParsedFeed {
 const DEFAULT_TIMEOUT_MS = Number(process.env.OPDS_TIMEOUT_MS || 20000);
 const feedCache = new Map<string, { expiresAt: number; data: ParsedFeed }>();
 const sourceCapabilityCache = new Map<string, { expiresAt: number; data: BookSourceCapabilities }>();
+const SOURCE_CAPABILITY_SUCCESS_TTL_MS = 6 * 60 * 60 * 1000;
+const SOURCE_CAPABILITY_FAILURE_TTL_MS = 30 * 1000;
 
 function asArray<T>(value: T | T[] | undefined | null): T[] {
   if (!value) return [];
@@ -291,8 +293,8 @@ async function getSourceById(sourceId: string): Promise<BookSource> {
 
 async function detectCapabilities(source: BookSource): Promise<BookSourceCapabilities> {
   const cached = sourceCapabilityCache.get(source.id);
-  const { cacheTTL } = await resolveOPDSConfig();
-  if (cached && cached.expiresAt > Date.now()) return cached.data;
+  const now = Date.now();
+  if (cached && cached.expiresAt > now) return cached.data;
 
   try {
     const feed = await getFeed(source);
@@ -311,23 +313,29 @@ async function detectCapabilities(source: BookSource): Promise<BookSourceCapabil
       searchMode: searchLink ? 'opds' : source.searchTemplate ? 'template' : 'disabled',
       catalogMode: navigationCount > 0 ? 'navigation' : entryCount > 0 ? 'flat' : 'disabled',
       acquisitionTypes,
-      lastCheckedAt: Date.now(),
+      lastCheckedAt: now,
     };
 
-    sourceCapabilityCache.set(source.id, { data, expiresAt: Date.now() + cacheTTL });
+    sourceCapabilityCache.set(source.id, { data, expiresAt: now + SOURCE_CAPABILITY_SUCCESS_TTL_MS });
     return data;
   } catch (error) {
-    const data: BookSourceCapabilities = {
+    const failureData: BookSourceCapabilities = {
       searchSupported: !!source.searchTemplate,
       catalogSupported: false,
       searchMode: source.searchTemplate ? 'template' : 'disabled',
       catalogMode: 'disabled',
       acquisitionTypes: [],
-      lastCheckedAt: Date.now(),
+      lastCheckedAt: now,
       lastError: (error as Error).message,
     };
-    sourceCapabilityCache.set(source.id, { data, expiresAt: Date.now() + cacheTTL / 2 });
-    return data;
+
+    if (cached?.data && !cached.data.lastError) {
+      sourceCapabilityCache.set(source.id, { data: cached.data, expiresAt: now + SOURCE_CAPABILITY_FAILURE_TTL_MS });
+      return cached.data;
+    }
+
+    sourceCapabilityCache.set(source.id, { data: failureData, expiresAt: now + SOURCE_CAPABILITY_FAILURE_TTL_MS });
+    return failureData;
   }
 }
 
