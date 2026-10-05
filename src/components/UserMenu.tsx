@@ -22,6 +22,7 @@ import {
   MoveDown,
   MoveUp,
   Package,
+  Puzzle,
   Router as RouterIcon,
   Rss,
   Settings,
@@ -39,6 +40,12 @@ import { createPortal } from 'react-dom';
 
 import { getAuthInfoFromBrowserCookie } from '@/lib/auth';
 import { clearAllDanmakuCache, getDanmakuCacheStats } from '@/lib/danmaku/api';
+import { SAVE_LIVE_PLAY_RECORDS_KEY } from '@/lib/db.client';
+import {
+  LOCAL_SETTINGS_KEYS,
+  LOCAL_SETTINGS_SYNC_LAST_PULL_KEY,
+  type LocalSettingsPayload,
+} from '@/lib/local-settings-sync';
 import { clearBangumiImageFallbackCache } from '@/lib/utils';
 import { CURRENT_VERSION } from '@/lib/version';
 import { UpdateStatus } from '@/lib/version_check';
@@ -50,6 +57,7 @@ import { FavoritesPanel } from './FavoritesPanel';
 import { NotificationPanel } from './NotificationPanel';
 import { OfflineDownloadPanel } from './OfflineDownloadPanel';
 import { PersonalCenterPanel } from './PersonalCenterPanel';
+import Toast, { ToastProps } from './Toast';
 import TVRemotePanel from './tv/TVRemotePanel';
 import { useVersionCheck } from './VersionCheckProvider';
 import { VersionPanel } from './VersionPanel';
@@ -159,9 +167,13 @@ export const UserMenu: React.FC = () => {
 
   // 设置相关状态
   const [defaultAggregateSearch, setDefaultAggregateSearch] = useState(true);
+  const [saveLivePlayRecords, setSaveLivePlayRecords] = useState(false);
   const [doubanProxyUrl, setDoubanProxyUrl] = useState('');
   const [enableOptimization, setEnableOptimization] = useState(true);
   const [preferStrategy, setPreferStrategy] = useState<'fast' | 'full'>('fast');
+  const [preferMode, setPreferMode] = useState<
+    'balanced' | 'resolution' | 'speed'
+  >('balanced'); // 优选偏好：综合判定/分辨率优先/网速优先
   const [speedTestTimeout, setSpeedTestTimeout] = useState(4000); // 测速超时时间（毫秒）
   const [fluidSearch, setFluidSearch] = useState(true);
   const [tmdbBackdropDisabled, setTmdbBackdropDisabled] = useState(false);
@@ -204,16 +216,22 @@ export const UserMenu: React.FC = () => {
   const [nextEpisodePreCache, setNextEpisodePreCache] = useState(true);
   const [nextEpisodeDanmakuPreload, setNextEpisodeDanmakuPreload] =
     useState(true);
+  const [disablePlaybackThumbnail, setDisablePlaybackThumbnail] =
+    useState(true);
+  const [disableEpisodeTitleFetch, setDisableEpisodeTitleFetch] =
+    useState(false);
   const [disableAutoLoadDanmaku, setDisableAutoLoadDanmaku] = useState(false);
-  const [danmakuMaxCount, setDanmakuMaxCount] = useState(0);
+  const [danmakuMaxCount, setDanmakuMaxCount] = useState(5000);
   const [danmakuHeatmapDisabled, setDanmakuHeatmapDisabled] = useState(false);
+  const [danmakuTraditionalToSimplified, setDanmakuTraditionalToSimplified] =
+    useState(false);
   const [searchTraditionalToSimplified, setSearchTraditionalToSimplified] =
     useState(false);
   const [exactSearch, setExactSearch] = useState(true);
   const [maxConcurrentDownloads, setMaxConcurrentDownloads] = useState(6);
   const [downloadThreadsPerTask, setDownloadThreadsPerTask] = useState(6);
   const [downloadSegmentTimeout, setDownloadSegmentTimeout] = useState(30000);
-  const [downloadMode, setDownloadMode] = useState<'browser' | 'filesystem'>(
+  const [downloadMode, setDownloadMode] = useState<'browser' | 'filesystem' | 'indexeddb'>(
     'browser'
   );
   const [filesystemSavePath, setFilesystemSavePath] = useState<string>('');
@@ -231,6 +249,12 @@ export const UserMenu: React.FC = () => {
   const [emailSettingsMessageType, setEmailSettingsMessageType] = useState<
     'success' | 'error' | null
   >(null);
+  const [telegramEnabled, setTelegramEnabled] = useState(false);
+  const [telegramBound, setTelegramBound] = useState(false);
+  const [telegramUsername, setTelegramUsername] = useState('');
+  const [telegramBindCode, setTelegramBindCode] = useState('');
+  const [telegramDeepLink, setTelegramDeepLink] = useState('');
+  const [telegramBindingBusy, setTelegramBindingBusy] = useState(false);
 
   // 设备管理状态
   const [devices, setDevices] = useState<any[]>([]);
@@ -253,15 +277,26 @@ export const UserMenu: React.FC = () => {
   // 折叠面板状态
   const [isDoubanSectionOpen, setIsDoubanSectionOpen] = useState(false);
 
-  // TMDB 图片设置
+  // TMDB 图片设置（默认取站点配置的 TMDB 图片默认地址，用户可本地覆盖）
   const [tmdbImageBaseUrl, setTmdbImageBaseUrl] = useState(
-    'https://image.tmdb.org'
+    typeof window !== 'undefined'
+      ? ((window as any).RUNTIME_CONFIG?.TMDB_IMAGE_BASE_URL as string) ||
+        'https://image.tmdb.org'
+      : 'https://image.tmdb.org'
   );
   const [isUsageSectionOpen, setIsUsageSectionOpen] = useState(false);
   const [isDownloadSectionOpen, setIsDownloadSectionOpen] = useState(false);
   const [isBufferSectionOpen, setIsBufferSectionOpen] = useState(false);
   const [isDanmakuSectionOpen, setIsDanmakuSectionOpen] = useState(false);
   const [isHomepageSectionOpen, setIsHomepageSectionOpen] = useState(false);
+
+  // 本地设置云同步状态
+  const [syncMode, setSyncMode] = useState<'off' | 'manual' | 'auto'>('off');
+  const [syncAvailable, setSyncAvailable] = useState(false);
+  const [syncBusy, setSyncBusy] = useState(false);
+  const [syncToast, setSyncToast] = useState<ToastProps | null>(null);
+  const [isCloudBackupDropdownOpen, setIsCloudBackupDropdownOpen] =
+    useState(false);
 
   // 首页模块配置
   interface HomeModule {
@@ -315,6 +350,7 @@ export const UserMenu: React.FC = () => {
   const animeDataSourceOptions = [
     { value: 'direct', label: '直连（浏览器直连 Bangumi）' },
     { value: 'server-proxy', label: '服务器代理（由服务器访问 Bangumi）' },
+    { value: 'sakura', label: '桜色镜像站（bangumi.lol）' },
     { value: 'custom-baseurl', label: '自定义 Base URL' },
   ];
 
@@ -326,7 +362,6 @@ export const UserMenu: React.FC = () => {
       label: '豆瓣 CDN By CMLiussss（腾讯云）',
     },
     { value: 'cmliussss-cdn-ali', label: '豆瓣 CDN By CMLiussss（阿里云）' },
-    { value: 'baidu', label: '百度图片代理' },
     { value: 'custom', label: '自定义代理' },
     {
       value: 'direct',
@@ -597,6 +632,13 @@ export const UserMenu: React.FC = () => {
         setDefaultAggregateSearch(JSON.parse(savedAggregateSearch));
       }
 
+      const savedSaveLivePlayRecords = localStorage.getItem(
+        SAVE_LIVE_PLAY_RECORDS_KEY
+      );
+      if (savedSaveLivePlayRecords !== null) {
+        setSaveLivePlayRecords(savedSaveLivePlayRecords === 'true');
+      }
+
       const savedDoubanDataSource = localStorage.getItem('doubanDataSource');
       const defaultDoubanProxyType =
         (window as any).RUNTIME_CONFIG?.DOUBAN_PROXY_TYPE ||
@@ -701,6 +743,15 @@ export const UserMenu: React.FC = () => {
         setPreferStrategy(savedPreferStrategy);
       }
 
+      const savedPreferMode = localStorage.getItem('preferMode');
+      if (
+        savedPreferMode === 'balanced' ||
+        savedPreferMode === 'resolution' ||
+        savedPreferMode === 'speed'
+      ) {
+        setPreferMode(savedPreferMode);
+      }
+
       const savedSpeedTestTimeout = localStorage.getItem('speedTestTimeout');
       if (savedSpeedTestTimeout !== null) {
         setSpeedTestTimeout(Number(savedSpeedTestTimeout));
@@ -744,6 +795,20 @@ export const UserMenu: React.FC = () => {
       );
       if (savedNextEpisodeDanmakuPreload !== null) {
         setNextEpisodeDanmakuPreload(savedNextEpisodeDanmakuPreload === 'true');
+      }
+
+      const savedDisablePlaybackThumbnail = localStorage.getItem(
+        'disablePlaybackThumbnail'
+      );
+      if (savedDisablePlaybackThumbnail !== null) {
+        setDisablePlaybackThumbnail(savedDisablePlaybackThumbnail === 'true');
+      }
+
+      const savedDisableEpisodeTitleFetch = localStorage.getItem(
+        'disableEpisodeTitleFetch'
+      );
+      if (savedDisableEpisodeTitleFetch !== null) {
+        setDisableEpisodeTitleFetch(savedDisableEpisodeTitleFetch === 'true');
       }
 
       const savedDisableAutoLoadDanmaku = localStorage.getItem(
@@ -804,6 +869,16 @@ export const UserMenu: React.FC = () => {
         }
       }
 
+      // 加载弹幕繁简转换设置
+      const savedDanmakuTraditionalToSimplified = localStorage.getItem(
+        'danmakuTraditionalToSimplified'
+      );
+      if (savedDanmakuTraditionalToSimplified !== null) {
+        setDanmakuTraditionalToSimplified(
+          savedDanmakuTraditionalToSimplified === 'true'
+        );
+      }
+
       // 加载搜索繁体转简体设置
       const savedSearchTraditionalToSimplified = localStorage.getItem(
         'searchTraditionalToSimplified'
@@ -851,7 +926,8 @@ export const UserMenu: React.FC = () => {
       const savedDownloadMode = localStorage.getItem('downloadMode');
       if (
         savedDownloadMode === 'browser' ||
-        savedDownloadMode === 'filesystem'
+        savedDownloadMode === 'filesystem' ||
+        savedDownloadMode === 'indexeddb'
       ) {
         setDownloadMode(savedDownloadMode);
       }
@@ -895,10 +971,40 @@ export const UserMenu: React.FC = () => {
         );
         setPushNotifications(Boolean(pushData.pushNotifications));
       }
+
+      const telegramResponse = await fetch('/api/telegram/bind');
+      if (telegramResponse.ok) {
+        const telegramData = await telegramResponse.json();
+        setTelegramEnabled(Boolean(telegramData.enabled));
+        setTelegramBound(Boolean(telegramData.binding));
+        setTelegramUsername(telegramData.binding?.telegramUsername || '');
+      }
     } catch (error) {
       console.error('加载通知设置失败:', error);
     } finally {
       setEmailSettingsLoading(false);
+    }
+  };
+
+  const handleCreateTelegramBindCode = async () => {
+    setTelegramBindingBusy(true);
+    setEmailSettingsMessage('');
+    setEmailSettingsMessageType(null);
+    try {
+      const response = await fetch('/api/telegram/bind', { method: 'POST' });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.error || '生成 Telegram 绑定码失败');
+      }
+      setTelegramBindCode(data.code || '');
+      setTelegramDeepLink(data.deepLink || '');
+      setEmailSettingsMessage('Telegram 绑定码已生成，请在 10 分钟内完成绑定');
+      setEmailSettingsMessageType('success');
+    } catch (error) {
+      setEmailSettingsMessage(error instanceof Error ? error.message : '生成 Telegram 绑定码失败');
+      setEmailSettingsMessageType('error');
+    } finally {
+      setTelegramBindingBusy(false);
     }
   };
 
@@ -1312,6 +1418,23 @@ export const UserMenu: React.FC = () => {
     }
   }, [isDoubanImageProxyBackupDropdownOpen]);
 
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (isCloudBackupDropdownOpen) {
+        const target = event.target as Element;
+        if (!target.closest('[data-dropdown="cloud-backup"]')) {
+          setIsCloudBackupDropdownOpen(false);
+        }
+      }
+    };
+
+    if (isCloudBackupDropdownOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () =>
+        document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [isCloudBackupDropdownOpen]);
+
   const handleMenuClick = () => {
     setIsOpen(!isOpen);
   };
@@ -1372,8 +1495,21 @@ export const UserMenu: React.FC = () => {
   const handleQrLoginResult = useCallback((rawValue: string) => {
     try {
       const url = new URL(rawValue, window.location.origin);
+
+      const isLocalRemoteUrl =
+        (url.protocol === 'http:' || url.protocol === 'https:') &&
+        url.searchParams.has('token') &&
+        (url.pathname === '/remote' || url.pathname.endsWith('/remote'));
+
+      if (isLocalRemoteUrl) {
+        setTvQrScannerStatus('识别成功，正在打开局域网遥控器...');
+        stopTvQrScanner();
+        window.location.href = url.href;
+        return true;
+      }
+
       if (url.origin !== window.location.origin || url.pathname !== '/qr-login') {
-        setTvQrScannerError('未识别到本站电视登录二维码，请扫描电视屏幕上的二维码。');
+        setTvQrScannerError('未识别到电视登录二维码或局域网遥控二维码，请扫描电视屏幕上的二维码。');
         return false;
       }
 
@@ -1388,7 +1524,7 @@ export const UserMenu: React.FC = () => {
       window.location.href = `/qr-login?token=${encodeURIComponent(token)}`;
       return true;
     } catch {
-      setTvQrScannerError('二维码内容无效，请扫描电视端显示的登录二维码。');
+      setTvQrScannerError('二维码内容无效，请扫描电视端显示的登录二维码或局域网遥控二维码。');
       return false;
     }
   }, [stopTvQrScanner]);
@@ -1424,7 +1560,7 @@ export const UserMenu: React.FC = () => {
       await tvQrVideoRef.current.play();
 
       const detector = new BarcodeDetectorCtor({ formats: ['qr_code'] });
-      setTvQrScannerStatus('请将电视屏幕上的登录二维码放入取景框');
+      setTvQrScannerStatus('请将电视屏幕上的登录二维码或局域网遥控二维码放入取景框');
 
       const scan = async () => {
         if (tvQrScanStopRef.current || !tvQrVideoRef.current) return;
@@ -1557,10 +1693,12 @@ export const UserMenu: React.FC = () => {
   const handleSettings = () => {
     setIsOpen(false);
     setIsSettingsOpen(true);
+    setIsCloudBackupDropdownOpen(false);
   };
 
   const handleCloseSettings = () => {
     setIsSettingsOpen(false);
+    setIsCloudBackupDropdownOpen(false);
   };
 
   // 设置相关的处理函数
@@ -1568,6 +1706,13 @@ export const UserMenu: React.FC = () => {
     setDefaultAggregateSearch(value);
     if (typeof window !== 'undefined') {
       localStorage.setItem('defaultAggregateSearch', JSON.stringify(value));
+    }
+  };
+
+  const handleSaveLivePlayRecordsToggle = (value: boolean) => {
+    setSaveLivePlayRecords(value);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(SAVE_LIVE_PLAY_RECORDS_KEY, String(value));
     }
   };
 
@@ -1589,6 +1734,15 @@ export const UserMenu: React.FC = () => {
     setPreferStrategy(value);
     if (typeof window !== 'undefined') {
       localStorage.setItem('preferStrategy', value);
+    }
+  };
+
+  const handlePreferModeChange = (
+    value: 'balanced' | 'resolution' | 'speed'
+  ) => {
+    setPreferMode(value);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('preferMode', value);
     }
   };
 
@@ -1631,7 +1785,7 @@ export const UserMenu: React.FC = () => {
     return seconds > 0 ? `${minutes}分${seconds}秒` : `${minutes}分钟`;
   };
 
-  const handleDownloadModeChange = (mode: 'browser' | 'filesystem') => {
+  const handleDownloadModeChange = (mode: 'browser' | 'filesystem' | 'indexeddb') => {
     // 如果选择 filesystem 模式，先检测浏览器是否支持
     if (
       mode === 'filesystem' &&
@@ -1885,6 +2039,20 @@ export const UserMenu: React.FC = () => {
     }
   };
 
+  const handleDisablePlaybackThumbnailToggle = (value: boolean) => {
+    setDisablePlaybackThumbnail(value);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('disablePlaybackThumbnail', String(value));
+    }
+  };
+
+  const handleDisableEpisodeTitleFetchToggle = (value: boolean) => {
+    setDisableEpisodeTitleFetch(value);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('disableEpisodeTitleFetch', String(value));
+    }
+  };
+
   const handleDisableAutoLoadDanmakuToggle = (value: boolean) => {
     setDisableAutoLoadDanmaku(value);
     if (typeof window !== 'undefined') {
@@ -1903,6 +2071,13 @@ export const UserMenu: React.FC = () => {
     setDanmakuHeatmapDisabled(value);
     if (typeof window !== 'undefined') {
       localStorage.setItem('danmaku_heatmap_disabled', String(value));
+    }
+  };
+
+  const handleDanmakuTraditionalToSimplifiedToggle = (value: boolean) => {
+    setDanmakuTraditionalToSimplified(value);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('danmakuTraditionalToSimplified', String(value));
     }
   };
 
@@ -2029,8 +2204,10 @@ export const UserMenu: React.FC = () => {
     const defaultAnimeImageBaseUrl = '';
 
     setDefaultAggregateSearch(true);
+    setSaveLivePlayRecords(false);
     setEnableOptimization(true);
     setPreferStrategy('fast');
+    setPreferMode('balanced');
     setFluidSearch(defaultFluidSearch);
     setTmdbBackdropDisabled(false);
     setEnableTrailers(false);
@@ -2050,6 +2227,8 @@ export const UserMenu: React.FC = () => {
     setBufferStrategy('medium');
     setNextEpisodePreCache(true);
     setNextEpisodeDanmakuPreload(true);
+    setDisablePlaybackThumbnail(true);
+    setDisableEpisodeTitleFetch(false);
     const defaultDanmakuAutoLoad =
       (typeof window !== 'undefined' &&
         (window as any).RUNTIME_CONFIG?.DANMAKU_AUTO_LOAD_DEFAULT !== false) ||
@@ -2059,12 +2238,15 @@ export const UserMenu: React.FC = () => {
     setHomeBannerHeightScale('1');
     setHomeContinueWatchingEnabled(true);
     setHomeModules(defaultHomeModules);
+    setDanmakuTraditionalToSimplified(false);
     setSearchTraditionalToSimplified(false);
 
     if (typeof window !== 'undefined') {
       localStorage.setItem('defaultAggregateSearch', JSON.stringify(true));
+      localStorage.setItem(SAVE_LIVE_PLAY_RECORDS_KEY, 'false');
       localStorage.setItem('enableOptimization', JSON.stringify(true));
       localStorage.setItem('preferStrategy', 'fast');
+      localStorage.setItem('preferMode', 'balanced');
       localStorage.setItem('fluidSearch', JSON.stringify(defaultFluidSearch));
       localStorage.setItem('liveDirectConnect', JSON.stringify(false));
       localStorage.setItem('tmdb_backdrop_disabled', 'false');
@@ -2085,20 +2267,580 @@ export const UserMenu: React.FC = () => {
       localStorage.setItem('bufferStrategy', 'medium');
       localStorage.setItem('nextEpisodePreCache', 'true');
       localStorage.setItem('nextEpisodeDanmakuPreload', 'true');
+      localStorage.setItem('disablePlaybackThumbnail', 'true');
+      localStorage.setItem('disableEpisodeTitleFetch', 'false');
       localStorage.setItem(
         'disableAutoLoadDanmaku',
         String(!defaultDanmakuAutoLoad)
       );
-      localStorage.setItem('danmakuMaxCount', '0');
+      localStorage.setItem('danmakuMaxCount', '5000');
       localStorage.setItem('danmaku_heatmap_disabled', 'false');
       localStorage.setItem('homeBannerEnabled', 'true');
       localStorage.setItem('homeBannerHeightScale', '1');
       localStorage.setItem('homeContinueWatchingEnabled', 'true');
       localStorage.setItem('homeModules', JSON.stringify(defaultHomeModules));
+      localStorage.setItem('danmakuTraditionalToSimplified', 'false');
       localStorage.setItem('searchTraditionalToSimplified', 'false');
       window.dispatchEvent(new CustomEvent('homeModulesUpdated'));
     }
   };
+
+  // ---------- 本地设置云同步 ----------
+
+  // 初始化：读取根布局注入的全局模式
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const runtimeConfig = (window as any).RUNTIME_CONFIG || {};
+    const mode =
+      runtimeConfig.LOCAL_SETTINGS_SYNC_MODE === 'manual' ||
+      runtimeConfig.LOCAL_SETTINGS_SYNC_MODE === 'auto'
+        ? runtimeConfig.LOCAL_SETTINGS_SYNC_MODE
+        : 'off';
+    const storageType = runtimeConfig.STORAGE_TYPE || 'localstorage';
+    const supportedStorageTypes = new Set([
+      'd1',
+      'postgres',
+      'turso',
+      'redis',
+      'upstash',
+      'kvrocks',
+    ]);
+    const username = getAuthInfoFromBrowserCookie()?.username;
+    const enabled =
+      supportedStorageTypes.has(storageType) &&
+      Boolean(username) &&
+      mode !== 'off';
+
+    setSyncAvailable(enabled);
+    setSyncMode(mode);
+
+    // 自动模式：同一用户在当前页面生命周期内只恢复一次，两个 UserMenu 实例共享同一请求。
+    if (mode === 'auto' && enabled && username) {
+      const syncState = (window as any).__moontvLocalSettingsAutoPull as
+        | { username: string; promise: Promise<boolean> }
+        | undefined;
+      if (!syncState || syncState.username !== username) {
+        (window as any).__moontvLocalSettingsAutoPull = {
+          username,
+          promise: pullRemoteSettings(false),
+        };
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // 从 localStorage 读取白名单键的当前快照（仅含已设置的键）
+  const snapshotLocalSettings = (): Record<string, string> => {
+    if (typeof window === 'undefined') return {};
+    const data: Record<string, string> = {};
+    for (const key of LOCAL_SETTINGS_KEYS) {
+      const value = localStorage.getItem(key);
+      if (value !== null) {
+        data[key] = value;
+      }
+    }
+    return data;
+  };
+
+  // 把单个键重置为「未设置」：删除 localStorage 并将组件状态恢复为默认值
+  const resetKeyToDefault = (key: string) => {
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem(key);
+    }
+    switch (key) {
+      case 'defaultAggregateSearch':
+        setDefaultAggregateSearch(true);
+        break;
+      case 'saveLivePlayRecords':
+        setSaveLivePlayRecords(false);
+        break;
+      case 'enableOptimization':
+        setEnableOptimization(true);
+        break;
+      case 'preferStrategy':
+        setPreferStrategy('fast');
+        break;
+      case 'preferMode':
+        setPreferMode('balanced');
+        break;
+      case 'speedTestTimeout':
+        setSpeedTestTimeout(4000);
+        break;
+      case 'maxConcurrentDownloads':
+        setMaxConcurrentDownloads(6);
+        break;
+      case 'downloadThreadsPerTask':
+        setDownloadThreadsPerTask(6);
+        break;
+      case 'downloadSegmentTimeout':
+        setDownloadSegmentTimeout(30000);
+        break;
+      case 'downloadMode':
+        setDownloadMode('browser');
+        break;
+      case 'filesystemSavePath':
+        setFilesystemSavePath('');
+        break;
+      case 'fluidSearch':
+        setFluidSearch(
+          typeof window === 'undefined' ||
+            (window as any).RUNTIME_CONFIG?.FLUID_SEARCH !== false
+        );
+        break;
+      case 'tmdb_backdrop_disabled':
+        setTmdbBackdropDisabled(false);
+        break;
+      case 'enableTrailers':
+        setEnableTrailers(false);
+        break;
+      case 'doubanProxyUrl':
+        setDoubanProxyUrl((window as any).RUNTIME_CONFIG?.DOUBAN_PROXY || '');
+        break;
+      case 'doubanDataSource':
+        setDoubanDataSource(
+          (window as any).RUNTIME_CONFIG?.DOUBAN_PROXY_TYPE ||
+            'cmliussss-cdn-tencent'
+        );
+        break;
+      case 'doubanDataSourceBackup':
+        setDoubanDataSourceBackup('direct');
+        break;
+      case 'doubanProxyUrlBackup':
+        setDoubanProxyUrlBackup('');
+        break;
+      case 'animeDataSource':
+        setAnimeDataSource(
+          (window as any).RUNTIME_CONFIG?.BANGUMI_DATA_SOURCE || 'direct'
+        );
+        break;
+      case 'animeDataSourceBackup':
+        setAnimeDataSourceBackup('server-proxy');
+        break;
+      case 'animeCustomBaseUrl':
+        setAnimeCustomBaseUrl('');
+        break;
+      case 'animeImageBaseUrl':
+        setAnimeImageBaseUrl('');
+        break;
+      case 'doubanImageProxyType':
+        setDoubanImageProxyType(
+          (window as any).RUNTIME_CONFIG?.DOUBAN_IMAGE_PROXY_TYPE ||
+            'cmliussss-cdn-tencent'
+        );
+        break;
+      case 'doubanImageProxyUrl':
+        setDoubanImageProxyUrl(
+          (window as any).RUNTIME_CONFIG?.DOUBAN_IMAGE_PROXY || ''
+        );
+        break;
+      case 'doubanImageProxyTypeBackup':
+        setDoubanImageProxyTypeBackup('server');
+        break;
+      case 'doubanImageProxyUrlBackup':
+        setDoubanImageProxyUrlBackup('');
+        break;
+      case 'tmdbImageBaseUrl':
+        setTmdbImageBaseUrl(
+          (window as any).RUNTIME_CONFIG?.TMDB_IMAGE_BASE_URL ||
+            'https://image.tmdb.org'
+        );
+        break;
+      case 'bufferStrategy':
+        setBufferStrategy('medium');
+        break;
+      case 'nextEpisodePreCache':
+        setNextEpisodePreCache(true);
+        break;
+      case 'nextEpisodeDanmakuPreload':
+        setNextEpisodeDanmakuPreload(true);
+        break;
+      case 'disablePlaybackThumbnail':
+        setDisablePlaybackThumbnail(true);
+        break;
+      case 'disableEpisodeTitleFetch':
+        setDisableEpisodeTitleFetch(false);
+        break;
+      case 'disableAutoLoadDanmaku':
+        setDisableAutoLoadDanmaku(
+          (window as any).RUNTIME_CONFIG?.DANMAKU_AUTO_LOAD_DEFAULT === false
+        );
+        break;
+      case 'danmakuMaxCount':
+        setDanmakuMaxCount(5000);
+        break;
+      case 'danmaku_heatmap_disabled':
+        setDanmakuHeatmapDisabled(false);
+        break;
+      case 'homeBannerEnabled':
+        setHomeBannerEnabled(true);
+        break;
+      case 'homeBannerHeightScale':
+        setHomeBannerHeightScale('1');
+        break;
+      case 'homeContinueWatchingEnabled':
+        setHomeContinueWatchingEnabled(true);
+        break;
+      case 'homeModules':
+        setHomeModules(defaultHomeModules);
+        break;
+      case 'danmakuTraditionalToSimplified':
+        setDanmakuTraditionalToSimplified(false);
+        break;
+      case 'searchTraditionalToSimplified':
+        setSearchTraditionalToSimplified(false);
+        break;
+      case 'exactSearch':
+        setExactSearch(true);
+        break;
+      default:
+        break;
+    }
+  };
+
+  // 把云端 payload 写回 localStorage（不触发服务端，仅本地生效）
+  const applyRemotePayloadCore = (payload: LocalSettingsPayload | null) => {
+    if (!payload || typeof payload.data !== 'object') return;
+    if (typeof window === 'undefined') return;
+    for (const key of Object.keys(payload.data)) {
+      if (!LOCAL_SETTINGS_KEYS.includes(key)) continue;
+      const value = payload.data[key];
+      localStorage.setItem(key, value);
+      // 同步更新状态，保证界面即时生效
+      switch (key) {
+        case 'defaultAggregateSearch':
+          setDefaultAggregateSearch(value === 'true');
+          break;
+        case 'saveLivePlayRecords':
+          setSaveLivePlayRecords(value === 'true');
+          break;
+        case 'enableOptimization':
+          setEnableOptimization(value === 'true');
+          break;
+        case 'preferStrategy':
+          setPreferStrategy(value === 'full' ? 'full' : 'fast');
+          break;
+        case 'preferMode':
+          setPreferMode(
+            value === 'resolution' || value === 'speed' ? value : 'balanced'
+          );
+          break;
+        case 'speedTestTimeout':
+          setSpeedTestTimeout(Number(value) || 10);
+          break;
+        case 'maxConcurrentDownloads':
+          setMaxConcurrentDownloads(Number(value) || 1);
+          break;
+        case 'downloadThreadsPerTask':
+          setDownloadThreadsPerTask(Number(value) || 1);
+          break;
+        case 'downloadSegmentTimeout':
+          setDownloadSegmentTimeout(Number(value) || 10);
+          break;
+        case 'downloadMode':
+          setDownloadMode(value as any);
+          break;
+        case 'fluidSearch':
+          setFluidSearch(value === 'true');
+          break;
+        case 'tmdb_backdrop_disabled':
+          setTmdbBackdropDisabled(value === 'true');
+          break;
+        case 'enableTrailers':
+          setEnableTrailers(value === 'true');
+          break;
+        case 'doubanProxyUrl':
+          setDoubanProxyUrl(value);
+          break;
+        case 'doubanDataSource':
+          setDoubanDataSource(value);
+          break;
+        case 'doubanDataSourceBackup':
+          setDoubanDataSourceBackup(value);
+          break;
+        case 'doubanProxyUrlBackup':
+          setDoubanProxyUrlBackup(value);
+          break;
+        case 'animeDataSource':
+          setAnimeDataSource(value);
+          break;
+        case 'animeDataSourceBackup':
+          setAnimeDataSourceBackup(value);
+          break;
+        case 'animeCustomBaseUrl':
+          setAnimeCustomBaseUrl(value);
+          break;
+        case 'animeImageBaseUrl':
+          setAnimeImageBaseUrl(value);
+          break;
+        case 'doubanImageProxyType':
+          setDoubanImageProxyType(value);
+          break;
+        case 'doubanImageProxyUrl':
+          setDoubanImageProxyUrl(value);
+          break;
+        case 'doubanImageProxyTypeBackup':
+          setDoubanImageProxyTypeBackup(value);
+          break;
+        case 'doubanImageProxyUrlBackup':
+          setDoubanImageProxyUrlBackup(value);
+          break;
+        case 'tmdbImageBaseUrl':
+          setTmdbImageBaseUrl(value);
+          break;
+        case 'bufferStrategy':
+          setBufferStrategy(value as any);
+          break;
+        case 'nextEpisodePreCache':
+          setNextEpisodePreCache(value === 'true');
+          break;
+        case 'nextEpisodeDanmakuPreload':
+          setNextEpisodeDanmakuPreload(value === 'true');
+          break;
+        case 'disablePlaybackThumbnail':
+          setDisablePlaybackThumbnail(value === 'true');
+          break;
+        case 'disableEpisodeTitleFetch':
+          setDisableEpisodeTitleFetch(value === 'true');
+          break;
+        case 'disableAutoLoadDanmaku':
+          setDisableAutoLoadDanmaku(value === 'true');
+          break;
+        case 'danmakuMaxCount':
+          setDanmakuMaxCount(Number(value) || 5000);
+          break;
+        case 'danmaku_heatmap_disabled':
+          setDanmakuHeatmapDisabled(value === 'true');
+          break;
+        case 'homeBannerEnabled':
+          setHomeBannerEnabled(value === 'true');
+          break;
+        case 'homeBannerHeightScale':
+          setHomeBannerHeightScale(value as HomeBannerHeightScale);
+          break;
+        case 'homeContinueWatchingEnabled':
+          setHomeContinueWatchingEnabled(value === 'true');
+          break;
+        case 'homeModules':
+          try {
+            const parsed = JSON.parse(value);
+            if (Array.isArray(parsed)) setHomeModules(parsed);
+          } catch {
+            // 忽略解析失败
+          }
+          break;
+        case 'danmakuTraditionalToSimplified':
+          setDanmakuTraditionalToSimplified(value === 'true');
+          break;
+        case 'searchTraditionalToSimplified':
+          setSearchTraditionalToSimplified(value === 'true');
+          break;
+        case 'exactSearch':
+          setExactSearch(value === 'true');
+          break;
+        default:
+          break;
+      }
+    }
+    // 恢复时删除「未设置」的键：data 中不存在的白名单键视为源设备未设置，
+    // 删除本地键回退默认，避免目标设备残留自定义值
+    for (const key of LOCAL_SETTINGS_KEYS) {
+      if (!(key in payload.data)) {
+        resetKeyToDefault(key);
+      }
+    }
+    // 更新本地拉取时间标记，避免每次进入都重复写入
+    try {
+      const last = localStorage.getItem(LOCAL_SETTINGS_SYNC_LAST_PULL_KEY);
+      if (payload.updatedAt && last !== String(payload.updatedAt)) {
+        localStorage.setItem(
+          LOCAL_SETTINGS_SYNC_LAST_PULL_KEY,
+          String(payload.updatedAt)
+        );
+      }
+    } catch {
+      // 忽略
+    }
+  };
+
+  // 应用远端 payload：写 localStorage + 广播事件，让所有 UserMenu 实例同步状态
+  const applyRemotePayload = (payload: LocalSettingsPayload | null) => {
+    if (!payload || typeof payload.data !== 'object') return;
+    if (typeof window === 'undefined') return;
+    applyRemotePayloadCore(payload);
+    // 页面上存在多个 UserMenu 实例（桌面端/移动端），
+    // 仅发起拉取的那个实例会更新 state，其余实例通过事件同步
+    window.dispatchEvent(
+      new CustomEvent('moontv_local_settings_applied', {
+        detail: { payload },
+      })
+    );
+  };
+
+  // 监听其他实例的恢复广播，同步本实例状态
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<{ payload?: LocalSettingsPayload }>)
+        .detail;
+      if (detail?.payload) {
+        applyRemotePayloadCore(detail.payload);
+      }
+    };
+    window.addEventListener('moontv_local_settings_applied', handler);
+    return () => {
+      window.removeEventListener('moontv_local_settings_applied', handler);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // 云同步结果以 Toast 展示
+  const showSyncToast = (text: string, ok: boolean) => {
+    setSyncToast({
+      message: text,
+      type: ok ? 'success' : 'error',
+      onClose: () => setSyncToast(null),
+    });
+  };
+
+  // 从云端拉取副本（自动模式进入网站时、手动恢复时调用）
+  const pullRemoteSettings = async (manual: boolean): Promise<boolean> => {
+    if (manual) setSyncBusy(true);
+    try {
+      const res = await fetch('/api/local-settings-sync', { cache: 'no-store' });
+      if (!res.ok) {
+        if (manual) {
+          showSyncToast('拉取失败，云端暂无备份或未登录', false);
+        }
+        return false;
+      }
+      const data = await res.json();
+
+      if (manual) {
+        // 手动恢复：需要用户确认，由调用方（按钮）先弹确认框
+        if (!data.payload) {
+          showSyncToast('云端暂无备份', false);
+          return false;
+        }
+        applyRemotePayload(data.payload);
+        showSyncToast('已从云端恢复本地设置', true);
+        return true;
+      }
+
+      // 自动模式：仅在远端比本地上次同步新时才写入，避免重复刷新
+      const lastLocal = Number(
+        localStorage.getItem(LOCAL_SETTINGS_SYNC_LAST_PULL_KEY) || 0
+      );
+      if (data.payload && data.updatedAt && data.updatedAt > lastLocal) {
+        applyRemotePayload(data.payload);
+      }
+      return true;
+    } catch {
+      if (manual) {
+        showSyncToast('拉取失败，请检查网络', false);
+      }
+      return false;
+    } finally {
+      if (manual) setSyncBusy(false);
+    }
+  };
+
+  // 上传本地设置到云端（手动备份 / 自动静默同步共用）
+  const pushRemoteSettings = async (
+    opts?: { silent?: boolean; confirmBefore?: boolean }
+  ) => {
+    const doPush = async (): Promise<boolean> => {
+      if (!opts?.silent) setSyncBusy(true);
+      const data = snapshotLocalSettings();
+      const payload: LocalSettingsPayload = {
+        version: 1,
+        data,
+        updatedAt: Date.now(),
+      };
+
+      try {
+        const res = await fetch('/api/local-settings-sync', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ payload }),
+        });
+        if (!res.ok) {
+          if (!opts?.silent) {
+            showSyncToast('备份失败，请确认已登录', false);
+          }
+          return false;
+        }
+        const result = await res.json();
+        // 服务端判定内容未变，无需重复备份
+        if (result.changed === false) {
+          if (!opts?.silent) {
+            showSyncToast('本地设置无变化，无需备份', false);
+          }
+          return true;
+        }
+        // 记录本次上传时间，避免自动模式下反复推送
+        try {
+          localStorage.setItem(
+            LOCAL_SETTINGS_SYNC_LAST_PULL_KEY,
+            String(result.updatedAt ?? payload.updatedAt)
+          );
+        } catch {
+          // 忽略
+        }
+        if (!opts?.silent) {
+          showSyncToast('已备份到云端', true);
+        }
+        return true;
+      } catch {
+        if (!opts?.silent) {
+          showSyncToast('备份失败，请检查网络', false);
+        }
+        return false;
+      } finally {
+        if (!opts?.silent) setSyncBusy(false);
+      }
+    };
+
+    if (opts?.confirmBefore) {
+      setConfirmDialog({
+        isOpen: true,
+        title: '备份本地设置',
+        message: '将把当前设备的本地设置备份到云端（仅单副本，会覆盖云端旧备份）。确定继续吗？',
+        onConfirm: () => {
+          setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
+          void doPush();
+        },
+      });
+      return;
+    }
+    return doPush();
+  };
+
+  // 手动恢复按钮：先确认再拉取
+  const handleRestoreFromCloud = () => {
+    setConfirmDialog({
+      isOpen: true,
+      title: '恢复云端设置',
+      message:
+        '将用云端备份覆盖当前设备的本地设置。确定继续吗？\n（不会影响播放记录、收藏等隐私数据）',
+      onConfirm: () => {
+        setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
+        void pullRemoteSettings(true);
+      },
+    });
+  };
+
+  // 自动模式：关闭本地设置面板时，把本地设置同步到云端
+  const prevSettingsOpenRef = useRef(false);
+  useEffect(() => {
+    if (prevSettingsOpenRef.current && !isSettingsOpen) {
+      // 面板从打开 → 关闭：自动模式下静默上传本地设置
+      if (syncAvailable && syncMode === 'auto') {
+        void pushRemoteSettings({ silent: true });
+      }
+    }
+    prevSettingsOpenRef.current = isSettingsOpen;
+  }, [isSettingsOpen, syncAvailable, syncMode]);
+
 
   // 清除弹幕缓存
   const handleClearDanmakuCache = async () => {
@@ -2398,6 +3140,50 @@ export const UserMenu: React.FC = () => {
               >
                 恢复默认
               </button>
+              {/* 云备份：仅手动模式显示 */}
+              {syncAvailable && syncMode === 'manual' && (
+                <div className='relative' data-dropdown='cloud-backup'>
+                  <button
+                    onClick={() =>
+                      setIsCloudBackupDropdownOpen(!isCloudBackupDropdownOpen)
+                    }
+                    disabled={syncBusy}
+                    className='px-2 py-1 text-xs text-blue-500 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 border border-blue-200 hover:border-blue-300 dark:border-blue-800 dark:hover:border-blue-700 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded transition-colors disabled:opacity-50 flex items-center gap-1'
+                    title='云备份设置'
+                  >
+                    云备份
+                    {isCloudBackupDropdownOpen ? (
+                      <ChevronUp className='w-3.5 h-3.5' />
+                    ) : (
+                      <ChevronDown className='w-3.5 h-3.5' />
+                    )}
+                  </button>
+                  {isCloudBackupDropdownOpen && (
+                    <div className='absolute z-50 right-0 top-full mt-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg shadow-lg overflow-hidden min-w-[150px]'>
+                      <button
+                        onClick={() => {
+                          setIsCloudBackupDropdownOpen(false);
+                          void pushRemoteSettings({ confirmBefore: true });
+                        }}
+                        disabled={syncBusy}
+                        className='w-full px-3 py-2 text-left text-sm text-blue-500 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors'
+                      >
+                        备份到云端
+                      </button>
+                      <button
+                        onClick={() => {
+                          setIsCloudBackupDropdownOpen(false);
+                          handleRestoreFromCloud();
+                        }}
+                        disabled={syncBusy}
+                        className='w-full px-3 py-2 text-left text-sm text-green-500 hover:text-green-700 dark:text-green-400 dark:hover:text-green-300 hover:bg-green-50 dark:hover:bg-green-900/20 transition-colors'
+                      >
+                        恢复云端备份
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
             <button
               onClick={handleCloseSettings}
@@ -3209,6 +3995,65 @@ export const UserMenu: React.FC = () => {
                         </div>
                       </div>
 
+                      <div className='space-y-2'>
+                        <div className='flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3'>
+                          <span className='flex items-center gap-1 text-xs text-gray-600 dark:text-gray-400'>
+                            优选偏好
+                            <button
+                              type='button'
+                              className='group relative inline-flex h-4 w-4 items-center justify-center rounded-full text-gray-400 transition-colors hover:text-gray-600 focus:outline-none focus:ring-2 focus:ring-green-500/50 dark:text-gray-500 dark:hover:text-gray-300'
+                              aria-label='优选偏好说明'
+                            >
+                              <CircleHelp className='h-3.5 w-3.5' />
+                              <span className='pointer-events-none absolute left-1/2 top-full z-50 mt-2 hidden w-56 -translate-x-1/2 rounded-lg bg-gray-900 px-3 py-2 text-left text-xs leading-relaxed text-white shadow-lg group-hover:block group-focus:block dark:bg-gray-700'>
+                                综合判定：分辨率与网速均衡评分
+                                <br />
+                                分辨率优先：优选时给分辨率加权重
+                                <br />
+                                网速优先：优选时给网速加权重
+                              </span>
+                            </button>
+                          </span>
+                          <div className='flex w-full rounded-lg border border-gray-200 bg-gray-100 p-1 dark:border-gray-700 dark:bg-gray-800 sm:inline-flex sm:w-auto'>
+                            <button
+                              type='button'
+                              onClick={() => handlePreferModeChange('balanced')}
+                              className={`flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-all sm:flex-none ${
+                                preferMode === 'balanced'
+                                  ? 'bg-white text-green-600 shadow-sm dark:bg-gray-700 dark:text-green-400'
+                                  : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
+                              }`}
+                            >
+                              综合判定
+                            </button>
+                            <button
+                              type='button'
+                              onClick={() =>
+                                handlePreferModeChange('resolution')
+                              }
+                              className={`flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-all sm:flex-none ${
+                                preferMode === 'resolution'
+                                  ? 'bg-white text-green-600 shadow-sm dark:bg-gray-700 dark:text-green-400'
+                                  : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
+                              }`}
+                            >
+                              分辨率优先
+                            </button>
+                            <button
+                              type='button'
+                              onClick={() => handlePreferModeChange('speed')}
+                              className={`flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-all sm:flex-none ${
+                                preferMode === 'speed'
+                                  ? 'bg-white text-green-600 shadow-sm dark:bg-gray-700 dark:text-green-400'
+                                  : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
+                              }`}
+                            >
+                              网速优先
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+
                       <div className='flex items-center justify-between'>
                         <span className='text-xs text-gray-600 dark:text-gray-400'>
                           换源面板测速超时
@@ -3416,6 +4261,33 @@ export const UserMenu: React.FC = () => {
                       </div>
                     </label>
                   </div>
+
+                  {/* 直播播放记录 */}
+                  <div className='flex items-center justify-between'>
+                    <div>
+                      <h4 className='text-sm font-medium text-gray-700 dark:text-gray-300'>
+                        保存直播的播放记录
+                      </h4>
+                      <p className='text-xs text-gray-500 dark:text-gray-400 mt-1'>
+                        开启后将保存直播频道观看记录
+                      </p>
+                    </div>
+                    <label className='flex items-center cursor-pointer'>
+                      <div className='relative'>
+                        <input
+                          type='checkbox'
+                          className='sr-only peer'
+                          checked={saveLivePlayRecords}
+                          onChange={(e) =>
+                            handleSaveLivePlayRecordsToggle(e.target.checked)
+                          }
+                        />
+                        <div className='w-11 h-6 bg-gray-300 rounded-full peer-checked:bg-green-500 transition-colors dark:bg-gray-600'></div>
+                        <div className='absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform peer-checked:translate-x-5'></div>
+                      </div>
+                    </label>
+                  </div>
+
                 </div>
               )}
             </div>
@@ -3678,6 +4550,21 @@ export const UserMenu: React.FC = () => {
                           File System API（保存分片到本地目录）
                         </span>
                       </label>
+                      <label className='flex items-start gap-2 cursor-pointer'>
+                        <input
+                          type='radio'
+                          name='downloadMode'
+                          value='indexeddb'
+                          checked={downloadMode === 'indexeddb'}
+                          onChange={() =>
+                            handleDownloadModeChange('indexeddb')
+                          }
+                          className='mt-0.5 w-4 h-4 text-green-500'
+                        />
+                        <span className='text-sm text-gray-700 dark:text-gray-300'>
+                          IndexedDB 缓存（应用内离线播放）
+                        </span>
+                      </label>
                     </div>
 
                     {/* 保存路径选择（仅在 filesystem 模式显示） */}
@@ -3722,7 +4609,7 @@ export const UserMenu: React.FC = () => {
               )}
             </div>
 
-            {/* 缓冲设置 */}
+            {/* 播放设置 */}
             <div className='border border-gray-200 dark:border-gray-700 rounded-lg overflow-visible'>
               <button
                 onClick={() => setIsBufferSectionOpen(!isBufferSectionOpen)}
@@ -3731,7 +4618,7 @@ export const UserMenu: React.FC = () => {
                 <div className='flex items-center gap-2'>
                   <Gauge className='w-5 h-5 text-gray-600 dark:text-gray-400' />
                   <h3 className='text-base font-semibold text-gray-800 dark:text-gray-200'>
-                    缓冲设置
+                    播放设置
                   </h3>
                 </div>
                 {isBufferSectionOpen ? (
@@ -3744,7 +4631,7 @@ export const UserMenu: React.FC = () => {
                 <div className='p-3 md:p-4 space-y-4 md:space-y-6'>
                   <div>
                     <p className='text-xs text-gray-500 dark:text-gray-400'>
-                      调整播放器缓冲策略（仅在播放页面生效）
+                      调整播放器相关设置（仅在播放页面生效）
                     </p>
                   </div>
 
@@ -3861,6 +4748,62 @@ export const UserMenu: React.FC = () => {
                       </div>
                     </label>
                   </div>
+
+                  {/* 禁用播放预览图 */}
+                  <div className='flex items-center justify-between'>
+                    <div>
+                      <h4 className='text-sm font-medium text-gray-700 dark:text-gray-300'>
+                        禁用播放预览图
+                      </h4>
+                      <p className='text-xs text-gray-500 dark:text-gray-400 mt-1'>
+                        关闭后不再生成进度条悬停预览图。生成预览图需完整抽帧整个视频，流量开销较大，修改后重新进入播放页生效
+                      </p>
+                    </div>
+                    <label className='flex items-center cursor-pointer'>
+                      <div className='relative'>
+                        <input
+                          type='checkbox'
+                          className='sr-only peer'
+                          checked={disablePlaybackThumbnail}
+                          onChange={(e) =>
+                            handleDisablePlaybackThumbnailToggle(
+                              e.target.checked
+                            )
+                          }
+                        />
+                        <div className='w-11 h-6 bg-gray-300 rounded-full peer-checked:bg-green-500 transition-colors dark:bg-gray-600'></div>
+                        <div className='absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform peer-checked:translate-x-5'></div>
+                      </div>
+                    </label>
+                  </div>
+
+                  {/* 禁用集数标题获取并切换 */}
+                  <div className='flex items-center justify-between'>
+                    <div>
+                      <h4 className='text-sm font-medium text-gray-700 dark:text-gray-300'>
+                        禁用集数标题获取并切换
+                      </h4>
+                      <p className='text-xs text-gray-500 dark:text-gray-400 mt-1'>
+                        开启后不再获取分集标题，选集面板保持数字网格视图，不自动切换为列表视图
+                      </p>
+                    </div>
+                    <label className='flex items-center cursor-pointer'>
+                      <div className='relative'>
+                        <input
+                          type='checkbox'
+                          className='sr-only peer'
+                          checked={disableEpisodeTitleFetch}
+                          onChange={(e) =>
+                            handleDisableEpisodeTitleFetchToggle(
+                              e.target.checked
+                            )
+                          }
+                        />
+                        <div className='w-11 h-6 bg-gray-300 rounded-full peer-checked:bg-green-500 transition-colors dark:bg-gray-600'></div>
+                        <div className='absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform peer-checked:translate-x-5'></div>
+                      </div>
+                    </label>
+                  </div>
                 </div>
               )}
             </div>
@@ -3957,6 +4900,34 @@ export const UserMenu: React.FC = () => {
                           checked={danmakuHeatmapDisabled}
                           onChange={(e) =>
                             handleDanmakuHeatmapDisabledToggle(e.target.checked)
+                          }
+                        />
+                        <div className='w-11 h-6 bg-gray-300 rounded-full peer-checked:bg-green-500 transition-colors dark:bg-gray-600'></div>
+                        <div className='absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform peer-checked:translate-x-5'></div>
+                      </div>
+                    </label>
+                  </div>
+
+                  {/* 弹幕繁简转换 */}
+                  <div className='flex items-center justify-between'>
+                    <div>
+                      <h4 className='text-sm font-medium text-gray-700 dark:text-gray-300'>
+                        弹幕繁简转换
+                      </h4>
+                      <p className='text-xs text-gray-500 dark:text-gray-400 mt-1'>
+                        开启后，拉取弹幕时自动将繁体中文转换为简体中文
+                      </p>
+                    </div>
+                    <label className='flex items-center cursor-pointer'>
+                      <div className='relative'>
+                        <input
+                          type='checkbox'
+                          className='sr-only peer'
+                          checked={danmakuTraditionalToSimplified}
+                          onChange={(e) =>
+                            handleDanmakuTraditionalToSimplifiedToggle(
+                              e.target.checked
+                            )
                           }
                         />
                         <div className='w-11 h-6 bg-gray-300 rounded-full peer-checked:bg-green-500 transition-colors dark:bg-gray-600'></div>
@@ -4408,8 +5379,8 @@ export const UserMenu: React.FC = () => {
                     <Smartphone className='h-4 w-4' />
                     手机相机扫码
                   </div>
-                  <h3 className='mt-3 text-2xl font-black'>扫描电视登录二维码</h3>
-                  <p className='mt-1 text-sm text-white/75'>识别成功后会进入手机确认登录页</p>
+                  <h3 className='mt-3 text-2xl font-black'>扫描电视二维码</h3>
+                  <p className='mt-1 text-sm text-white/75'>支持扫码登录，也支持打开局域网遥控器</p>
                 </div>
                 <button
                   type='button'
@@ -4670,7 +5641,7 @@ export const UserMenu: React.FC = () => {
               </div>
                 <p className='mt-5 text-sm leading-6 text-slate-600 dark:text-slate-400'>
                 {tvModeEnabled
-                  ? '电视端打开 /tv 后会显示二维码；手机在这里打开相机扫描并确认登录。'
+                  ? '电视端打开 /tv 后可扫码登录；在电视端“我的”页也可扫描局域网遥控二维码。'
                   : '当前部署未开启 TV 模式，/tv 页面和 Web 电视遥控不可用。'}
               </p>
               {!tvModeEnabled && (
@@ -4685,7 +5656,7 @@ export const UserMenu: React.FC = () => {
                   disabled={!tvModeEnabled}
                   className='inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl bg-rose-600 px-4 py-3 text-sm font-black text-white transition hover:bg-rose-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500/70 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-500 dark:disabled:bg-white/10 dark:disabled:text-slate-500'
                 >
-                  打开相机扫码登录
+                  打开相机扫码
                   <Smartphone className='h-4 w-4' />
                 </button>
                 <button
@@ -5104,6 +6075,39 @@ export const UserMenu: React.FC = () => {
                   </div>
                 </div>
               </div>
+
+              {/* MoonTVPlus 插件 */}
+              <div className='bg-gray-50 dark:bg-gray-800 rounded-lg p-5 border border-gray-200 dark:border-gray-700'>
+                <div className='flex items-start gap-4'>
+                  <div className='flex-shrink-0 relative'>
+                    <div className='w-16 h-16 rounded-xl bg-purple-500 flex items-center justify-center shadow-sm'>
+                      <Puzzle className='w-8 h-8 text-white' />
+                    </div>
+                    <span className='absolute -top-1 -right-1 px-1.5 py-0.5 bg-purple-600 text-white text-[10px] font-bold rounded'>
+                      插件
+                    </span>
+                  </div>
+                  <div className='flex-1 min-w-0'>
+                    <h4 className='text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2'>
+                      MoonTVPlus 插件
+                    </h4>
+                    <p className='text-sm text-gray-600 dark:text-gray-400 mb-3'>
+                      为 MoonTVPlus
+                      提供增强性功能，目前拥有解决私人影库超分跨域能力
+                    </p>
+                    <a
+                      href='https://github.com/mtvpls/moontvplus-extension/releases'
+                      target='_blank'
+                      rel='noopener noreferrer'
+                      className='inline-flex items-center gap-2 px-4 py-2 bg-purple-500 hover:bg-purple-600 text-white text-sm font-medium rounded-lg transition-colors'
+                    >
+                      <Download className='w-4 h-4' />
+                      下载
+                      <ExternalLink className='w-3 h-3' />
+                    </a>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -5170,6 +6174,9 @@ export const UserMenu: React.FC = () => {
 
       {/* 使用 Portal 将设置面板渲染到 document.body */}
       {isSettingsOpen && mounted && createPortal(settingsPanel, document.body)}
+
+      {/* 云备份操作结果 Toast */}
+      {syncToast && mounted && createPortal(<Toast {...syncToast} />, document.body)}
 
       {/* 使用 Portal 将修改密码面板渲染到 document.body */}
       {isChangePasswordOpen &&
@@ -5247,6 +6254,13 @@ export const UserMenu: React.FC = () => {
         pushNotificationsSupported={pushNotificationsSupported}
         pushNotificationsConfigured={pushNotificationsConfigured}
         pushNotificationsBusy={pushNotificationsBusy}
+        telegramEnabled={telegramEnabled}
+        telegramBound={telegramBound}
+        telegramUsername={telegramUsername}
+        telegramBindCode={telegramBindCode}
+        telegramDeepLink={telegramDeepLink}
+        telegramBindingBusy={telegramBindingBusy}
+        onCreateTelegramBindCode={handleCreateTelegramBindCode}
         emailSettingsLoading={emailSettingsLoading}
         emailSettingsSaving={emailSettingsSaving}
         onSave={handleSaveEmailSettings}

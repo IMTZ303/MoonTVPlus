@@ -40,6 +40,8 @@ export async function GET(request: NextRequest) {
       WatchRoom: watchRoomConfig,
       EnableOfflineDownload: process.env.NEXT_PUBLIC_ENABLE_OFFLINE_DOWNLOAD === 'true',
       DanmakuAutoLoadDefault: true,
+      EnableTelegramLogin: Boolean(process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_BOT_USERNAME && process.env.TELEGRAM_LOGIN_ENABLED !== 'false'),
+      TelegramBotUsername: process.env.TELEGRAM_BOT_USERNAME || '',
     });
   }
 
@@ -60,11 +62,20 @@ export async function GET(request: NextRequest) {
     EnableOIDCLogin: config.SiteConfig.EnableOIDCLogin || false,
     EnableOIDCRegistration: config.SiteConfig.EnableOIDCRegistration || false,
     OIDCButtonText: config.SiteConfig.OIDCButtonText || '',
+    EnableTelegramLogin: Boolean(
+      config.TelegramConfig?.enabled &&
+      config.TelegramConfig?.loginEnabled &&
+      (config.TelegramConfig?.botToken || process.env.TELEGRAM_BOT_TOKEN) &&
+      (config.TelegramConfig?.botUsername || process.env.TELEGRAM_BOT_USERNAME)
+    ),
+    TelegramBotUsername: config.TelegramConfig?.botUsername || process.env.TELEGRAM_BOT_USERNAME || '',
     DanmakuAutoLoadDefault: config.SiteConfig.DanmakuAutoLoadDefault !== false,
     loginBackgroundImage: config.ThemeConfig?.loginBackgroundImage || '',
     registerBackgroundImage: config.ThemeConfig?.registerBackgroundImage || '',
     homeBackgroundImage: config.ThemeConfig?.homeBackgroundImage || '',
     progressThumbType: config.ThemeConfig?.progressThumbType || 'default',
+    loadingStyle: config.ThemeConfig?.loadingStyle || 'talisman',
+    rateBadgeStyle: config.ThemeConfig?.rateBadgeStyle || 'flag',
     progressThumbPresetId: config.ThemeConfig?.progressThumbPresetId || '',
     progressThumbCustomUrl: config.ThemeConfig?.progressThumbCustomUrl || '',
     // AI配置（只暴露功能开关，不暴露API密钥等敏感信息）

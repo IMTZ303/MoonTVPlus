@@ -17,6 +17,9 @@ import {
   Notification,
   MovieRequest,
   PushSubscriptionRecord,
+  LocalSettingsSyncRecord,
+  SetLocalSettingsSyncOptions,
+  SetLocalSettingsSyncResult,
 } from './types';
 import { AdminConfig } from './admin.types';
 import { MangaReadRecord, MangaShelfItem } from './manga.types';
@@ -27,7 +30,7 @@ import {
   MusicV2PlaylistItem,
   MusicV2PlaylistRecord,
 } from './music-v2';
-import { dispatchWebPushNotification } from './web-push';
+import { dispatchNotificationChannels } from './notification-dispatch';
 
 /**
  * Vercel Postgres 存储实现
@@ -109,9 +112,9 @@ export class PostgresStorage implements IStorage {
           INSERT INTO play_records (
             username, key, title, source_name, cover, year,
             episode_index, total_episodes, play_time, total_time,
-            save_time, search_title, new_episodes
+            save_time, search_title, new_episodes, is_anime
           )
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
           ON CONFLICT (username, key) DO UPDATE SET
             title = EXCLUDED.title,
             source_name = EXCLUDED.source_name,
@@ -123,7 +126,8 @@ export class PostgresStorage implements IStorage {
             total_time = EXCLUDED.total_time,
             save_time = EXCLUDED.save_time,
             search_title = EXCLUDED.search_title,
-            new_episodes = EXCLUDED.new_episodes
+            new_episodes = EXCLUDED.new_episodes,
+            is_anime = EXCLUDED.is_anime
         `
         )
         .bind(
@@ -139,7 +143,8 @@ export class PostgresStorage implements IStorage {
           record.total_time,
           record.save_time,
           record.search_title || '',
-          record.new_episodes || null
+          record.new_episodes || null,
+          record.is_anime ? 1 : 0
         )
         .run();
     } catch (err) {
@@ -390,6 +395,7 @@ export class PostgresStorage implements IStorage {
       save_time: row.save_time,
       search_title: row.search_title || '',
       new_episodes: row.new_episodes || undefined,
+      is_anime: row.is_anime === 1 || row.is_anime === true,
     };
   }
 
@@ -1718,9 +1724,9 @@ export class PostgresStorage implements IStorage {
   async listMusicV2History(userName: string): Promise<MusicV2HistoryRecord[]> {
     try {
       const results = await this.db
-        // 按队列顺序返回；当前播放项由最大 last_played_at 决定
+        // 按队列顺序返回（sort_order 由拖拽维护）；当前播放项由最大 last_played_at 决定
         .prepare(
-          'SELECT * FROM music_v2_history WHERE username = $1 ORDER BY created_at ASC, id ASC'
+          'SELECT * FROM music_v2_history WHERE username = $1 ORDER BY sort_order ASC, created_at ASC, id ASC'
         )
         .bind(userName)
         .all();
@@ -1743,6 +1749,7 @@ export class PostgresStorage implements IStorage {
         lastQuality: row.last_quality || undefined,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
+        sortOrder: row.sort_order ?? undefined,
       }));
     } catch (err) {
       console.error('PostgresStorage.listMusicV2History error:', err);
@@ -1760,9 +1767,9 @@ export class PostgresStorage implements IStorage {
           `
           INSERT INTO music_v2_history (
             username, song_id, source, songmid, name, artist, album, cover, duration_text, duration_sec,
-            play_progress_sec, last_played_at, play_count, last_quality, created_at, updated_at
+            play_progress_sec, last_played_at, play_count, last_quality, created_at, updated_at, sort_order
           )
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
           ON CONFLICT(username, song_id) DO UPDATE SET
             source = EXCLUDED.source,
             songmid = EXCLUDED.songmid,
@@ -1776,7 +1783,8 @@ export class PostgresStorage implements IStorage {
             last_played_at = EXCLUDED.last_played_at,
             play_count = EXCLUDED.play_count,
             last_quality = EXCLUDED.last_quality,
-            updated_at = EXCLUDED.updated_at
+            updated_at = EXCLUDED.updated_at,
+            sort_order = EXCLUDED.sort_order
         `
         )
         .bind(
@@ -1795,7 +1803,8 @@ export class PostgresStorage implements IStorage {
           record.playCount,
           record.lastQuality || null,
           record.createdAt,
-          record.updatedAt
+          record.updatedAt,
+          record.sortOrder ?? record.createdAt
         )
         .run();
     } catch (err) {
@@ -3064,7 +3073,7 @@ export class PostgresStorage implements IStorage {
         )
         .run();
 
-      await dispatchWebPushNotification(this, userName, notification);
+      await dispatchNotificationChannels(this, userName, notification);
     } catch (err) {
       console.error('PostgresStorage.addNotification error:', err);
       throw err;
@@ -3371,6 +3380,83 @@ export class PostgresStorage implements IStorage {
     }
   }
 
+  // ---------- 本地设置云同步 ----------
+
+  async getUserLocalSettings(
+    userName: string
+  ): Promise<LocalSettingsSyncRecord | null> {
+    try {
+      const result = await this.db
+        .prepare(
+          `SELECT payload, payload_md5, payload_size, version, updated_at
+           FROM user_local_settings WHERE username = $1`
+        )
+        .bind(userName)
+        .first();
+      if (!result) return null;
+      return {
+        payload: result.payload as string,
+        payloadMd5: result.payload_md5 as string,
+        payloadSize: Number(result.payload_size),
+        version: Number(result.version),
+        updatedAt: Number(result.updated_at),
+      };
+    } catch (err) {
+      console.error('PostgresStorage.getUserLocalSettings error:', err);
+      return null;
+    }
+  }
+
+  async setUserLocalSettings(
+    userName: string,
+    payload: string,
+    opts: SetLocalSettingsSyncOptions
+  ): Promise<SetLocalSettingsSyncResult> {
+    try {
+      const now = Date.now();
+      let version = 1;
+
+      // 乐观锁：仅当期望版本匹配时才覆盖（无 expectedVersion 时无条件覆盖）
+      if (opts.expectedVersion !== undefined) {
+        const current = await this.getUserLocalSettings(userName);
+        if (current && current.version !== opts.expectedVersion) {
+          return { ok: false, version: current.version, updatedAt: current.updatedAt };
+        }
+        version = current ? current.version + 1 : 1;
+      } else {
+        const current = await this.getUserLocalSettings(userName);
+        version = current ? current.version + 1 : 1;
+      }
+
+      await this.db
+        .prepare(
+          `INSERT INTO user_local_settings
+             (username, payload, payload_md5, payload_size, version, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6)
+           ON CONFLICT (username) DO UPDATE SET
+             payload = EXCLUDED.payload,
+             payload_md5 = EXCLUDED.payload_md5,
+             payload_size = EXCLUDED.payload_size,
+             version = EXCLUDED.version,
+             updated_at = EXCLUDED.updated_at`
+        )
+        .bind(
+          userName,
+          payload,
+          opts.payloadMd5,
+          opts.payloadSize,
+          version,
+          now
+        )
+        .run();
+
+      return { ok: true, version, updatedAt: now };
+    } catch (err) {
+      console.error('PostgresStorage.setUserLocalSettings error:', err);
+      throw err;
+    }
+  }
+
   async clearAllData(): Promise<void> {
     try {
       // 清空所有表（保留结构）
@@ -3461,6 +3547,138 @@ export class PostgresStorage implements IStorage {
       console.error('PostgresStorage.deleteGlobalValue error:', err);
       throw err;
     }
+  }
+
+
+  private mapTelegramBinding(row: any): import('./types').TelegramBindingRecord {
+    return {
+      username: row.username as string,
+      telegramUserId: String(row.telegram_user_id),
+      chatId: String(row.chat_id),
+      telegramUsername: (row.telegram_username as string | null) || null,
+      firstName: (row.first_name as string | null) || null,
+      lastName: (row.last_name as string | null) || null,
+      notificationsEnabled: row.notifications_enabled === 1 || row.notifications_enabled === true,
+      boundAt: Number(row.bound_at),
+      updatedAt: Number(row.updated_at),
+    };
+  }
+
+  async getTelegramBinding(userName: string): Promise<import('./types').TelegramBindingRecord | null> {
+    try {
+      const row = await this.db
+        .prepare('SELECT * FROM telegram_bindings WHERE username = $1')
+        .bind(userName)
+        .first();
+      return row ? this.mapTelegramBinding(row) : null;
+    } catch (err) {
+      console.error('PostgresStorage.getTelegramBinding error:', err);
+      return null;
+    }
+  }
+
+  async getTelegramBindingByTelegramUserId(telegramUserId: string): Promise<import('./types').TelegramBindingRecord | null> {
+    try {
+      const row = await this.db
+        .prepare('SELECT * FROM telegram_bindings WHERE telegram_user_id = $1')
+        .bind(telegramUserId)
+        .first();
+      return row ? this.mapTelegramBinding(row) : null;
+    } catch (err) {
+      console.error('PostgresStorage.getTelegramBindingByTelegramUserId error:', err);
+      return null;
+    }
+  }
+
+  async upsertTelegramBinding(binding: import('./types').TelegramBindingRecord): Promise<void> {
+    try {
+      await this.db
+        .prepare(`
+          INSERT INTO telegram_bindings (
+            username, telegram_user_id, chat_id, telegram_username, first_name, last_name,
+            notifications_enabled, bound_at, updated_at
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+          ON CONFLICT(username) DO UPDATE SET
+            telegram_user_id = EXCLUDED.telegram_user_id,
+            chat_id = EXCLUDED.chat_id,
+            telegram_username = EXCLUDED.telegram_username,
+            first_name = EXCLUDED.first_name,
+            last_name = EXCLUDED.last_name,
+            notifications_enabled = EXCLUDED.notifications_enabled,
+            bound_at = EXCLUDED.bound_at,
+            updated_at = EXCLUDED.updated_at
+        `)
+        .bind(
+          binding.username,
+          binding.telegramUserId,
+          binding.chatId,
+          binding.telegramUsername || null,
+          binding.firstName || null,
+          binding.lastName || null,
+          binding.notificationsEnabled ? 1 : 0,
+          binding.boundAt,
+          binding.updatedAt
+        )
+        .run();
+    } catch (err) {
+      console.error('PostgresStorage.upsertTelegramBinding error:', err);
+      throw err;
+    }
+  }
+
+  async deleteTelegramBindingByUsername(userName: string): Promise<void> {
+    await this.db.prepare('DELETE FROM telegram_bindings WHERE username = $1').bind(userName).run();
+  }
+
+  async deleteTelegramBindingByTelegramUserId(telegramUserId: string): Promise<void> {
+    await this.db.prepare('DELETE FROM telegram_bindings WHERE telegram_user_id = $1').bind(telegramUserId).run();
+  }
+
+  async getTelegramBindSession(code: string): Promise<import('./types').TelegramBindSessionRecord | null> {
+    try {
+      const row = await this.db
+        .prepare('SELECT * FROM telegram_bind_sessions WHERE code = $1')
+        .bind(code)
+        .first();
+      if (!row) return null;
+      return {
+        code: row.code as string,
+        username: row.username as string,
+        createdAt: Number(row.created_at),
+        expiresAt: Number(row.expires_at),
+        used: row.used === 1 || row.used === true,
+      };
+    } catch (err) {
+      console.error('PostgresStorage.getTelegramBindSession error:', err);
+      return null;
+    }
+  }
+
+  async upsertTelegramBindSession(session: import('./types').TelegramBindSessionRecord): Promise<void> {
+    try {
+      await this.db
+        .prepare(`
+          INSERT INTO telegram_bind_sessions (code, username, created_at, expires_at, used)
+          VALUES ($1, $2, $3, $4, $5)
+          ON CONFLICT(code) DO UPDATE SET
+            username = EXCLUDED.username,
+            created_at = EXCLUDED.created_at,
+            expires_at = EXCLUDED.expires_at,
+            used = EXCLUDED.used
+        `)
+        .bind(session.code, session.username, session.createdAt, session.expiresAt, session.used ? 1 : 0)
+        .run();
+    } catch (err) {
+      console.error('PostgresStorage.upsertTelegramBindSession error:', err);
+      throw err;
+    }
+  }
+
+  async markTelegramBindSessionUsed(code: string): Promise<void> {
+    await this.db
+      .prepare('UPDATE telegram_bind_sessions SET used = 1 WHERE code = $1')
+      .bind(code)
+      .run();
   }
 
   async getLastFavoriteCheckTime(userName: string): Promise<number> {

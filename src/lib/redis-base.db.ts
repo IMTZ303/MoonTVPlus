@@ -7,11 +7,12 @@ import {
   MusicV2HistoryRecord,
   MusicV2PlaylistItem,
   MusicV2PlaylistRecord,
+  sortMusicV2History,
 } from './music-v2';
 import { RedisAdapter } from './redis-adapter';
-import { Favorite, IStorage, Notification, PlayRecord, PushSubscriptionRecord, SkipConfig } from './types';
+import { Favorite, IStorage, LocalSettingsSyncRecord, Notification, PlayRecord, PushSubscriptionRecord, SetLocalSettingsSyncOptions, SetLocalSettingsSyncResult, SkipConfig } from './types';
 import { userInfoCache } from './user-cache';
-import { dispatchWebPushNotification } from './web-push';
+import { dispatchNotificationChannels } from './notification-dispatch';
 
 // 搜索历史最大条数
 const SEARCH_HISTORY_LIMIT = 20;
@@ -760,19 +761,12 @@ export abstract class BaseRedisStorage implements IStorage {
       this.adapter.hGetAll(this.musicV2HistoryKey(userName))
     );
 
-    return (
+    // 按队列顺序返回（sortOrder 优先，遗留记录回退到 createdAt）；
+    // 当前播放项由最大 lastPlayedAt 决定，不参与排序。
+    return sortMusicV2History(
       Object.values(rows || {})
         .filter(Boolean)
         .map((value) => JSON.parse(value as string) as MusicV2HistoryRecord)
-        // 按队列顺序返回；当前播放项由最大 lastPlayedAt 决定。
-        // createdAt 相同时使用歌曲标识做稳定兜底，避免最近播放时间把歌曲顶到队尾。
-        .sort((a, b) => {
-          const createdAtDiff = (a.createdAt || 0) - (b.createdAt || 0);
-          if (createdAtDiff !== 0) return createdAtDiff;
-          return `${a.source}:${a.songId}`.localeCompare(
-            `${b.source}:${b.songId}`
-          );
-        })
     );
   }
 
@@ -1001,6 +995,10 @@ export abstract class BaseRedisStorage implements IStorage {
 
   // 检查用户是否存在
   async checkUserExist(userName: string): Promise<boolean> {
+    // 站长（owner）凭据来自环境变量，不落库，需显式放行
+    if (userName === process.env.USERNAME) {
+      return true;
+    }
     // 使用 EXISTS 判断 key 是否存在
     const exists = await this.withRetry(() =>
       this.adapter.exists(this.userPwdKey(userName))
@@ -1574,6 +1572,9 @@ export abstract class BaseRedisStorage implements IStorage {
     // 从用���列表中移除
     await this.withRetry(() => this.adapter.zRem(this.userListKey(), userName));
 
+    // 删除用户的本地设置云同步副本
+    await this.withRetry(() => this.adapter.del(this.settingsSyncKey(userName)));
+
     // 删除用户的其他数据（播放记录、收藏等）
     await this.deleteUser(userName);
 
@@ -1887,6 +1888,67 @@ export abstract class BaseRedisStorage implements IStorage {
     );
   }
 
+  // ---------- 本地设置云同步 ----------
+  // 使用单个 String key 存完整快照文档（单副本、覆盖式），字段与关系型表逐列对应
+  private settingsSyncKey(user: string) {
+    return `u:${user}:settings_sync`;
+  }
+
+  async getUserLocalSettings(
+    userName: string
+  ): Promise<LocalSettingsSyncRecord | null> {
+    const val = await this.withRetry(() =>
+      this.adapter.get(this.settingsSyncKey(userName))
+    );
+    if (!val) return null;
+    try {
+      const parsed = JSON.parse(val) as LocalSettingsSyncRecord;
+      return {
+        payload: String(parsed.payload ?? ''),
+        payloadMd5: String(parsed.payloadMd5 ?? ''),
+        payloadSize: Number(parsed.payloadSize) || 0,
+        version: Number(parsed.version) || 0,
+        updatedAt: Number(parsed.updatedAt) || 0,
+      };
+    } catch (err) {
+      console.error('getUserLocalSettings parse error:', err);
+      return null;
+    }
+  }
+
+  async setUserLocalSettings(
+    userName: string,
+    payload: string,
+    opts: SetLocalSettingsSyncOptions
+  ): Promise<SetLocalSettingsSyncResult> {
+    const key = this.settingsSyncKey(userName);
+    const now = Date.now();
+    let version = 1;
+
+    // 乐观锁：仅当期望版本匹配时才覆盖（无 expectedVersion 时无条件覆盖）
+    if (opts.expectedVersion !== undefined) {
+      const current = await this.getUserLocalSettings(userName);
+      if (current && current.version !== opts.expectedVersion) {
+        return { ok: false, version: current.version, updatedAt: current.updatedAt };
+      }
+      version = current ? current.version + 1 : 1;
+    } else {
+      const current = await this.getUserLocalSettings(userName);
+      version = current ? current.version + 1 : 1;
+    }
+
+    const doc: LocalSettingsSyncRecord = {
+      payload,
+      payloadMd5: opts.payloadMd5,
+      payloadSize: opts.payloadSize,
+      version,
+      updatedAt: now,
+    };
+
+    await this.withRetry(() => this.adapter.set(key, JSON.stringify(doc)));
+    return { ok: true, version, updatedAt: now };
+  }
+
   // ---------- 跳过片头片尾配置 ----------
   private skipHashKey(user: string) {
     return `u:${user}:skip`; // u:username:skip (hash结构)
@@ -2098,6 +2160,65 @@ export abstract class BaseRedisStorage implements IStorage {
     await this.withRetry(() => this.adapter.del(this.globalValueKey(key)));
   }
 
+
+  private telegramBindingKey(userName: string) {
+    return `telegram:binding:user:${userName}`;
+  }
+
+  private telegramUserBindingKey(telegramUserId: string) {
+    return `telegram:binding:tg:${telegramUserId}`;
+  }
+
+  private telegramBindSessionKey(code: string) {
+    return `telegram:bind:${code}`;
+  }
+
+  async getTelegramBinding(userName: string): Promise<import('./types').TelegramBindingRecord | null> {
+    const raw = await this.withRetry(() => this.adapter.get(this.telegramBindingKey(userName)));
+    return raw ? (JSON.parse(ensureString(raw)) as import('./types').TelegramBindingRecord) : null;
+  }
+
+  async getTelegramBindingByTelegramUserId(telegramUserId: string): Promise<import('./types').TelegramBindingRecord | null> {
+    const userName = await this.withRetry(() => this.adapter.get(this.telegramUserBindingKey(telegramUserId)));
+    return userName ? this.getTelegramBinding(ensureString(userName)) : null;
+  }
+
+  async upsertTelegramBinding(binding: import('./types').TelegramBindingRecord): Promise<void> {
+    await this.withRetry(() => this.adapter.set(this.telegramBindingKey(binding.username), JSON.stringify(binding)));
+    await this.withRetry(() => this.adapter.set(this.telegramUserBindingKey(binding.telegramUserId), binding.username));
+  }
+
+  async deleteTelegramBindingByUsername(userName: string): Promise<void> {
+    const binding = await this.getTelegramBinding(userName);
+    await this.withRetry(() => this.adapter.del(this.telegramBindingKey(userName)));
+    if (binding) {
+      await this.withRetry(() => this.adapter.del(this.telegramUserBindingKey(binding.telegramUserId)));
+    }
+  }
+
+  async deleteTelegramBindingByTelegramUserId(telegramUserId: string): Promise<void> {
+    const binding = await this.getTelegramBindingByTelegramUserId(telegramUserId);
+    if (binding) {
+      await this.withRetry(() => this.adapter.del(this.telegramBindingKey(binding.username)));
+    }
+    await this.withRetry(() => this.adapter.del(this.telegramUserBindingKey(telegramUserId)));
+  }
+
+  async getTelegramBindSession(code: string): Promise<import('./types').TelegramBindSessionRecord | null> {
+    const raw = await this.withRetry(() => this.adapter.get(this.telegramBindSessionKey(code)));
+    return raw ? (JSON.parse(ensureString(raw)) as import('./types').TelegramBindSessionRecord) : null;
+  }
+
+  async upsertTelegramBindSession(session: import('./types').TelegramBindSessionRecord): Promise<void> {
+    await this.withRetry(() => this.adapter.set(this.telegramBindSessionKey(session.code), JSON.stringify(session)));
+  }
+
+  async markTelegramBindSessionUsed(code: string): Promise<void> {
+    const session = await this.getTelegramBindSession(code);
+    if (!session) return;
+    await this.upsertTelegramBindSession({ ...session, used: true });
+  }
+
   // ---------- 通知相关 ----------
   private notificationsKey(userName: string) {
     return `u:${userName}:notifications`;
@@ -2133,7 +2254,7 @@ export abstract class BaseRedisStorage implements IStorage {
       )
     );
 
-    await dispatchWebPushNotification(this, userName, notification);
+    await dispatchNotificationChannels(this, userName, notification);
   }
 
   async markNotificationAsRead(

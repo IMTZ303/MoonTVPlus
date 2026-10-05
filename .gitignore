@@ -35,6 +35,9 @@ yarn-error.log*
 
 # cloudflare
 .open-next/
+
+# edgeone
+.edgeone/
 .wrangler/
 wrangler.toml.bak
 
@@ -49,6 +52,7 @@ sitemap-*.xml
 # generated files
 src/lib/runtime.ts
 public/manifest.json
+public/libbitsub/
 
 # PWA files
 public/sw.js
@@ -71,4 +75,3 @@ scripts/test
 
 .agents/
 skills-lock.json
-pnpm-lock.yaml
