@@ -1,17 +1,15 @@
 'use client';
 
-import { useCallback,useEffect, useState } from 'react';
-
-import { useEnableComments } from '@/hooks/useEnableComments';
-
-import ScrollableRow from '@/components/ScrollableRow';
-import VideoCard from '@/components/VideoCard';
+import { useCallback, useState } from 'react';
 
 import {
   getRecommendationCache,
   recommendationCacheKeys,
   setRecommendationCache,
 } from '@/lib/recommendations/cache';
+
+import ScrollableRow from '@/components/ScrollableRow';
+import VideoCard from '@/components/VideoCard';
 
 interface DoubanRecommendation {
   doubanId: string;
@@ -29,7 +27,7 @@ export default function DoubanRecommendations({ doubanId }: DoubanRecommendation
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const enableComments = useEnableComments();
+
 
   const fetchRecommendations = useCallback(async () => {
     try {
@@ -70,15 +68,9 @@ export default function DoubanRecommendations({ doubanId }: DoubanRecommendation
     }
   }, [doubanId]);
 
-  useEffect(() => {
-    if (enableComments && doubanId) {
-      fetchRecommendations();
-    }
-  }, [enableComments, doubanId, fetchRecommendations]);
 
-  if (!enableComments) {
-    return null;
-  }
+
+
 
   if (loading) {
     return (

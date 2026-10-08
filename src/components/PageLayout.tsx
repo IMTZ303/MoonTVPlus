@@ -8,9 +8,7 @@ import MobileBottomNav from './MobileBottomNav';
 import MobileHeader from './MobileHeader';
 import Sidebar from './Sidebar';
 import { ThemeToggle } from './ThemeToggle';
-import { UpdateNotification } from './UpdateNotification';
 import { UserMenu } from './UserMenu';
-import { VersionCheckProvider } from './VersionCheckProvider';
 
 interface PageLayoutProps {
   children: React.ReactNode;
@@ -21,57 +19,19 @@ interface PageLayoutProps {
 const PageLayout = ({ children, activePath = '/', hideNavigation = false }: PageLayoutProps) => {
   const router = useRouter();
   const [backgroundImage, setBackgroundImage] = useState('');
-  const shouldShowSharedBackground = !hideNavigation && activePath !== '/play';
+
 
   useEffect(() => {
     router.prefetch('/search');
     router.prefetch('/play');
   }, [router]);
 
-  useEffect(() => {
-    if (typeof window === 'undefined' || !shouldShowSharedBackground) {
-      setBackgroundImage('');
-      return;
-    }
 
-    const homeBg = (
-      window as Window & {
-        RUNTIME_CONFIG?: {
-          HOME_BACKGROUND_IMAGE?: string;
-        };
-      }
-    ).RUNTIME_CONFIG?.HOME_BACKGROUND_IMAGE;
-    if (!homeBg) {
-      setBackgroundImage('');
-      return;
-    }
-
-    const urls = homeBg
-      .split('\n')
-      .map((url: string) => url.trim())
-      .filter((url: string) => url !== '');
-
-    if (urls.length === 0) {
-      setBackgroundImage('');
-      return;
-    }
-
-    const randomIndex = Math.floor(Math.random() * urls.length);
-    setBackgroundImage(urls[randomIndex]);
-  }, [shouldShowSharedBackground]);
 
   return (
-    <VersionCheckProvider>
+
       <div className='relative w-full min-h-screen overflow-hidden'>
-        {shouldShowSharedBackground && backgroundImage && (
-          <>
-            <div
-              className='absolute inset-0 pointer-events-none bg-cover bg-center bg-no-repeat opacity-45'
-              style={{ backgroundImage: `url(${backgroundImage})` }}
-            />
-            <div className='absolute inset-0 pointer-events-none bg-white/50 dark:bg-gray-950/50' />
-          </>
-        )}
+
 
         {/* 移动端头部 */}
         {!hideNavigation && (
@@ -101,7 +61,7 @@ const PageLayout = ({ children, activePath = '/', hideNavigation = false }: Page
               <div className='absolute top-2 right-4 z-20 hidden md:flex items-center gap-2'>
                 <ThemeToggle />
                 <UserMenu />
-                <UpdateNotification />
+
               </div>
             )}
 
@@ -124,7 +84,7 @@ const PageLayout = ({ children, activePath = '/', hideNavigation = false }: Page
           </div>
         )}
       </div>
-    </VersionCheckProvider>
+
   );
 };
 

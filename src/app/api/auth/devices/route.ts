@@ -55,7 +55,7 @@ export async function DELETE(request: NextRequest) {
     invalidateDeviceAccessToken(authInfo.username, tokenId);
     await revokeRefreshToken(authInfo.username, tokenId);
     const storage = getStorage();
-    await storage.deletePushSubscriptionsByTokenId?.(authInfo.username, tokenId);
+
 
     return NextResponse.json({ ok: true });
   } catch (error) {
@@ -76,7 +76,7 @@ export async function POST(request: NextRequest) {
     invalidateUserAccessTokens(authInfo.username);
     await revokeAllRefreshTokens(authInfo.username);
     const storage = getStorage();
-    await storage.deleteAllPushSubscriptions?.(authInfo.username);
+
 
     const response = NextResponse.json({ ok: true });
 

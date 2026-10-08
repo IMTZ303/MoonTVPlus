@@ -1,12 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-
 import { Redis } from '@upstash/redis';
-import type { RedisClientType } from 'redis';
-
-/**
- * 统一的 Redis 适配器接口
- * 只抽象 API 命名差异，不处理序列化（由调用者负责）
- */
 export interface RedisAdapter {
   // Hash 操作
   hSet(key: string, field: string, value: string): Promise<number>;
@@ -41,114 +34,6 @@ export interface RedisAdapter {
   zRem(key: string, ...members: string[]): Promise<number>;
 }
 
-/**
- * 标准 Redis 客户端适配器（用于 Redis 和 Kvrocks）
- * 只处理 API 命名，不处理序列化
- */
-export class StandardRedisAdapter implements RedisAdapter {
-  constructor(private client: RedisClientType) {}
-
-  // Hash 操作
-  async hSet(key: string, fieldOrData: string | Record<string, string>, value?: string): Promise<number> {
-    if (typeof fieldOrData === 'string') {
-      return this.client.hSet(key, fieldOrData, value!);
-    } else {
-      return this.client.hSet(key, fieldOrData);
-    }
-  }
-
-  async hGet(key: string, field: string): Promise<string | null> {
-    const val = await this.client.hGet(key, field);
-    return val ?? null;
-  }
-
-  async hGetAll(key: string): Promise<Record<string, string>> {
-    return this.client.hGetAll(key);
-  }
-
-  async hDel(key: string, ...fields: string[]): Promise<number> {
-    return this.client.hDel(key, fields);
-  }
-
-  // String 操作
-  async set(key: string, value: string): Promise<void> {
-    await this.client.set(key, value);
-  }
-
-  async get(key: string): Promise<string | null> {
-    return this.client.get(key);
-  }
-
-  async del(keys: string | string[]): Promise<number> {
-    const keyArray = Array.isArray(keys) ? keys : [keys];
-    if (keyArray.length === 0) return 0;
-    return this.client.del(keyArray);
-  }
-
-  async exists(...keys: string[]): Promise<number> {
-    return this.client.exists(keys);
-  }
-
-  async keys(pattern: string): Promise<string[]> {
-    return this.client.keys(pattern);
-  }
-
-  async mGet(keys: string[]): Promise<(string | null)[]> {
-    return this.client.mGet(keys);
-  }
-
-  // List 操作
-  async lPush(key: string, ...values: string[]): Promise<number> {
-    return this.client.lPush(key, values);
-  }
-
-  async lRange(key: string, start: number, stop: number): Promise<string[]> {
-    return this.client.lRange(key, start, stop);
-  }
-
-  async lRem(key: string, count: number, value: string): Promise<number> {
-    return this.client.lRem(key, count, value);
-  }
-
-  async lTrim(key: string, start: number, stop: number): Promise<void> {
-    await this.client.lTrim(key, start, stop);
-  }
-
-  // Set 操作
-  async sAdd(key: string, ...members: string[]): Promise<number> {
-    return this.client.sAdd(key, members);
-  }
-
-  async sMembers(key: string): Promise<string[]> {
-    return Array.from(await this.client.sMembers(key));
-  }
-
-  async sRem(key: string, ...members: string[]): Promise<number> {
-    return this.client.sRem(key, members);
-  }
-
-  // Sorted Set 操作
-  async zAdd(key: string, member: { score: number; value: string }): Promise<number> {
-    return this.client.zAdd(key, member);
-  }
-
-  async zRange(key: string, start: number, stop: number): Promise<string[]> {
-    return this.client.zRange(key, start, stop);
-  }
-
-  async zCard(key: string): Promise<number> {
-    return this.client.zCard(key);
-  }
-
-  async zRem(key: string, ...members: string[]): Promise<number> {
-    return this.client.zRem(key, members);
-  }
-}
-
-/**
- * Upstash Redis 客户端适配器（用于 Upstash REST API）
- * 处理 API 命名差异和 Upstash 的自动序列化
- */
 export class UpstashRedisAdapter implements RedisAdapter {
   constructor(private client: Redis) {}
 

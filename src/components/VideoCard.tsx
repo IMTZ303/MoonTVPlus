@@ -1,7 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any,react-hooks/exhaustive-deps,@typescript-eslint/no-empty-function */
 
 import {
-  Cloud,
   ExternalLink,
   Heart,
   Info,
@@ -9,11 +8,9 @@ import {
   ListPlus,
   PlayCircleIcon,
   Radio,
-  Sparkles,
   Trash2,
   Youtube,
 } from 'lucide-react';
-import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import React, {
   forwardRef,
@@ -22,7 +19,6 @@ import React, {
   useEffect,
   useImperativeHandle,
   useMemo,
-  useRef,
   useState,
 } from 'react';
 
@@ -36,28 +32,15 @@ import {
   saveFavorite,
   subscribeToDataUpdates,
 } from '@/lib/db.client';
-import { getBangumiSubjectUrl } from '@/lib/bangumi.client';
-import { isNetdiskSource } from '@/lib/netdisk/source';
-import {
-  base58Decode,
-  clearBangumiImageFallbackCacheIfFailed,
-  ensureBangumiImagePrimaryProbed,
-  getBangumiImageFallbackUrl,
-  getDoubanImageFallbackUrl,
-  processImageUrl,
-  tryApplyBangumiImageFallback,
-  tryApplyDoubanImageFallback,
-} from '@/lib/utils';
+import type { TMDBVideoItem } from '@/lib/tmdb.client';
+import { base58Decode, processImageUrl } from '@/lib/utils';
 import { useLongPress } from '@/hooks/useLongPress';
 
-import AIChatPanel from '@/components/AIChatPanel';
-import AnimeSubscribeModal from '@/components/AnimeSubscribeModal';
 import DetailPanel from '@/components/DetailPanel';
 import { ImagePlaceholder } from '@/components/ImagePlaceholder';
 import ImageViewer from '@/components/ImageViewer';
 import MobileActionSheet from '@/components/MobileActionSheet';
 import TrailerPickerDialog from '@/components/TrailerPickerDialog';
-import type { TMDBVideoItem } from '@/lib/tmdb.client';
 
 export interface VideoCardProps {
   id?: string;
@@ -83,7 +66,7 @@ export interface VideoCardProps {
   onDelete?: () => void;
   rate?: string;
   type?: string;
-  isBangumi?: boolean;
+
   /** 明确标记为动漫（豆瓣动漫页 / CMS 等） */
   isAnime?: boolean;
   /** CMS 分类名，用于启发式识别动漫 */
@@ -103,7 +86,7 @@ export interface VideoCardProps {
     episodes_titles?: string[];
   };
   onBeforeNavigate?: () => void;
-  isDuanju?: boolean; // 短剧标识，用于播放页跳过"上次播放到"提示
+   // 短剧标识，用于播放页跳过"上次播放到"提示
 }
 
 export type VideoCardHandle = {
@@ -132,7 +115,7 @@ const VideoCard = forwardRef<VideoCardHandle, VideoCardProps>(
       onDelete,
       rate,
       type = '',
-      isBangumi = false,
+
       isAnime = false,
       typeName,
       isAggregate = false,
@@ -146,42 +129,31 @@ const VideoCard = forwardRef<VideoCardHandle, VideoCardProps>(
       totalTime,
       cmsData,
       onBeforeNavigate,
-      isDuanju,
+
     }: VideoCardProps,
     ref
   ) {
     const router = useRouter();
-    const [showAnimeSubscribe, setShowAnimeSubscribe] = useState(false);
-    const [animeSubscribeToast, setAnimeSubscribeToast] = useState('');
+
+
     const isAdminUser = useMemo(() => {
       const auth = getAuthInfoFromBrowserCookie();
       return auth?.role === 'admin' || auth?.role === 'owner';
     }, []);
     const resolvedIsAnime = useMemo(
       () =>
-        Boolean(isBangumi || isAnime || isAnimeCategoryText(typeName)),
-      [isBangumi, isAnime, typeName]
+        Boolean(isAnime || isAnimeCategoryText(typeName)),
+      [ isAnime, typeName]
     );
     const actualTitle = title;
     const actualPoster = poster;
-    const netdiskPosterPlaceholder = useMemo(() => {
-      return `data:image/svg+xml;utf8,${encodeURIComponent(`
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 600">
-        <rect width="400" height="600" fill="#f3f4f6"/>
-        <g fill="none" stroke="#9ca3af" stroke-width="16" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M118 332c-30.9 0-56-25.1-56-56 0-28.5 21.3-52 48.9-55.4C120.6 184.7 154.8 160 195 160c51.1 0 92.9 39.2 97.1 89.2 27.3 4.2 47.9 27.7 47.9 56.8 0 32-26 58-58 58H118z"/>
-        </g>
-      </svg>
-    `)}`;
-    }, []);
+
     const processedPoster = useMemo(
       () =>
         actualPoster
           ? processImageUrl(actualPoster)
-          : isNetdiskSource(source)
-          ? netdiskPosterPlaceholder
           : '',
-      [actualPoster, source, netdiskPosterPlaceholder]
+      [actualPoster, source, ]
     );
     const [favorited, setFavorited] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
@@ -189,14 +161,11 @@ const VideoCard = forwardRef<VideoCardHandle, VideoCardProps>(
     const [searchFavorited, setSearchFavorited] = useState<boolean | null>(
       null
     ); // 搜索结果的收藏状态
-    const [showAIChat, setShowAIChat] = useState(false);
+
     const [isAIStreaming, setIsAIStreaming] = useState(false);
-    const [aiEnabled, setAiEnabled] = useState(false);
-    const [rateBadgeStyle, setRateBadgeStyle] = useState<
-      'default' | 'flag' | 'medal'
-    >('flag');
-    const [aiDefaultMessageWithVideo, setAiDefaultMessageWithVideo] =
-      useState('');
+
+
+
     const [showDetailPanel, setShowDetailPanel] = useState(false);
     const [showImageViewer, setShowImageViewer] = useState(false);
     const [showUpcomingInfo, setShowUpcomingInfo] = useState(false); // 控制即将上映倒计时的显示
@@ -207,31 +176,7 @@ const VideoCard = forwardRef<VideoCardHandle, VideoCardProps>(
     const [displayPoster, setDisplayPoster] = useState(processedPoster);
 
     // 检查AI功能是否启用
-    useEffect(() => {
-      if (typeof window !== 'undefined') {
-        const enabled =
-          (window as any).RUNTIME_CONFIG?.AI_ENABLED &&
-          (window as any).RUNTIME_CONFIG?.AI_ENABLE_VIDEOCARD_ENTRY;
-        setAiEnabled(enabled);
 
-        // 加载AI默认消息配置
-        const defaultMsg = (window as any).RUNTIME_CONFIG
-          ?.AI_DEFAULT_MESSAGE_WITH_VIDEO;
-        if (defaultMsg) {
-          setAiDefaultMessageWithVideo(defaultMsg);
-        }
-
-        // 评分星标样式
-        const badgeStyle = (window as any).RUNTIME_CONFIG?.RATE_BADGE_STYLE;
-        if (
-          badgeStyle === 'default' ||
-          badgeStyle === 'flag' ||
-          badgeStyle === 'medal'
-        ) {
-          setRateBadgeStyle(badgeStyle);
-        }
-      }
-    }, []);
 
     // 可外部修改的可控字段
     const [dynamicEpisodes, setDynamicEpisodes] = useState<number | undefined>(
@@ -261,23 +206,7 @@ const VideoCard = forwardRef<VideoCardHandle, VideoCardProps>(
     }, [processedPoster]);
 
     // 主源图片域主页探测：失败写 sticky 后切备源海报（替代原 5s 强制降级）
-    useEffect(() => {
-      if (!actualPoster) return;
 
-      let cancelled = false;
-      void (async () => {
-        const reachable = await ensureBangumiImagePrimaryProbed();
-        if (cancelled || reachable) return;
-        const bangumiFallbackPoster = getBangumiImageFallbackUrl(actualPoster);
-        if (bangumiFallbackPoster) {
-          setDisplayPoster(bangumiFallbackPoster);
-        }
-      })();
-
-      return () => {
-        cancelled = true;
-      };
-    }, [actualPoster]);
 
     useImperativeHandle(ref, () => ({
       setEpisodes: (eps?: number) => setDynamicEpisodes(eps),
@@ -464,7 +393,7 @@ const VideoCard = forwardRef<VideoCardHandle, VideoCardProps>(
           isAggregate ? '&prefer=true' : ''
         }${
           actualQuery ? `&stitle=${encodeURIComponent(actualQuery.trim())}` : ''
-        }${actualSearchType ? `&stype=${actualSearchType}` : ''}${isDuanju ? '&duanju=1' : ''}`;
+        }${actualSearchType ? `&stype=${actualSearchType}` : ''}${''}`;
 
         if (isCurrentlyOnPlayPage) {
           // 在 play 页面内，添加 _reload 参数强制刷新
@@ -488,7 +417,7 @@ const VideoCard = forwardRef<VideoCardHandle, VideoCardProps>(
       actualQuery,
       actualSearchType,
       onBeforeNavigate,
-      isDuanju,
+
     ]);
 
     // 新标签页播放处理函数
@@ -527,7 +456,7 @@ const VideoCard = forwardRef<VideoCardHandle, VideoCardProps>(
           isAggregate ? '&prefer=true' : ''
         }${
           actualQuery ? `&stitle=${encodeURIComponent(actualQuery.trim())}` : ''
-        }${actualSearchType ? `&stype=${actualSearchType}` : ''}${isDuanju ? '&duanju=1' : ''}`;
+        }${actualSearchType ? `&stype=${actualSearchType}` : ''}${''}`;
         window.open(url, '_blank');
       }
     }, [
@@ -542,7 +471,7 @@ const VideoCard = forwardRef<VideoCardHandle, VideoCardProps>(
       actualQuery,
       actualSearchType,
       onBeforeNavigate,
-      isDuanju,
+
     ]);
 
     // 检查搜索结果的收藏状态
@@ -856,12 +785,10 @@ const VideoCard = forwardRef<VideoCardHandle, VideoCardProps>(
       if (config.showDoubanLink && actualDoubanId && actualDoubanId !== 0) {
         actions.push({
           id: 'douban',
-          label: isBangumi ? 'Bangumi 详情' : '豆瓣详情',
+          label: '豆瓣详情',
           icon: <Link size={20} />,
           onClick: () => {
-            const url = isBangumi
-              ? getBangumiSubjectUrl(actualDoubanId.toString())
-              : `https://movie.douban.com/subject/${actualDoubanId.toString()}`;
+            const url = `https://movie.douban.com/subject/${actualDoubanId.toString()}`;
             window.open(url, '_blank', 'noopener,noreferrer');
           },
           color: 'default' as const,
@@ -897,21 +824,7 @@ const VideoCard = forwardRef<VideoCardHandle, VideoCardProps>(
       }
 
       // AI问片功能
-      if (aiEnabled && actualTitle) {
-        actions.push({
-          id: 'ai-chat',
-          label: 'AI问片',
-          icon: <Sparkles size={20} />,
-          onClick: () => {
-            setShowMobileActions(false);
-            // 延迟打开 AIChatPanel，确保 MobileActionSheet 完全清理完成
-            setTimeout(() => {
-              setShowAIChat(true);
-            }, 250);
-          },
-          color: 'default' as const,
-        });
-      }
+
 
       // 添加追番订阅（仅管理员 + 判定为动漫）
       if (
@@ -927,7 +840,7 @@ const VideoCard = forwardRef<VideoCardHandle, VideoCardProps>(
           onClick: () => {
             setShowMobileActions(false);
             setTimeout(() => {
-              setShowAnimeSubscribe(true);
+
             }, 250);
           },
           color: 'primary' as const,
@@ -943,14 +856,14 @@ const VideoCard = forwardRef<VideoCardHandle, VideoCardProps>(
       favorited,
       searchFavorited,
       actualDoubanId,
-      isBangumi,
+
       isAggregate,
       dynamicSourceNames,
       handleClick,
       handleToggleFavorite,
       handleDeleteRecord,
       handlePlayInNewTab,
-      aiEnabled,
+
       actualTitle,
       actualSearchType,
       isUpcoming,
@@ -1045,86 +958,7 @@ const VideoCard = forwardRef<VideoCardHandle, VideoCardProps>(
                 <div className='absolute inset-0 flex items-center justify-center bg-gray-200/80 dark:bg-gray-700/80'>
                   <Link className='w-8 h-8 text-blue-500' />
                 </div>
-              ) : isNetdiskSource(actualSource) &&
-                !actualPoster &&
-                displayPoster === netdiskPosterPlaceholder ? (
-                <div className='absolute inset-0 flex flex-col items-center justify-center bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400'>
-                  <Cloud className='w-10 h-10 opacity-80' />
-                </div>
-              ) : (
-                <Image
-                  src={displayPoster}
-                  alt={actualTitle}
-                  fill
-                  className={
-                    origin === 'live'
-                      ? 'object-contain'
-                      : orientation === 'horizontal'
-                      ? 'object-cover object-center'
-                      : 'object-cover'
-                  }
-                  referrerPolicy='no-referrer'
-                  loading='lazy'
-                  onLoadingComplete={() => {
-                    setIsLoading(true);
-                  }}
-                  onError={(e) => {
-                    const img = e.currentTarget as HTMLImageElement;
-                    const doubanFallbackPoster =
-                      getDoubanImageFallbackUrl(actualPoster);
-                    if (
-                      doubanFallbackPoster &&
-                      tryApplyDoubanImageFallback(img, actualPoster)
-                    ) {
-                      setDisplayPoster(doubanFallbackPoster);
-                      return;
-                    }
-
-                    const bangumiFallbackPoster =
-                      getBangumiImageFallbackUrl(actualPoster);
-                    if (
-                      bangumiFallbackPoster &&
-                      tryApplyBangumiImageFallback(img, actualPoster)
-                    ) {
-                      setDisplayPoster(bangumiFallbackPoster);
-                      return;
-                    }
-
-                    if (
-                      clearBangumiImageFallbackCacheIfFailed(img, actualPoster)
-                    ) {
-                      setDisplayPoster(processedPoster);
-                      return;
-                    }
-
-                    // 图片加载失败时的重试机制
-                    if (!img.dataset.retried) {
-                      img.dataset.retried = 'true';
-                      setTimeout(() => {
-                        setDisplayPoster(processedPoster);
-                        img.src = processedPoster;
-                      }, 2000);
-                    }
-                  }}
-                  style={
-                    {
-                      // 禁用图片的默认长按效果
-                      WebkitUserSelect: 'none',
-                      userSelect: 'none',
-                      WebkitTouchCallout: 'none',
-                      pointerEvents: 'none', // 海报点击交给卡片外层处理，确保点击播放
-                    } as React.CSSProperties
-                  }
-                  onContextMenu={(e) => {
-                    e.preventDefault();
-                    return false;
-                  }}
-                  onDragStart={(e) => {
-                    e.preventDefault();
-                    return false;
-                  }}
-                />
-              )}
+              ) : (<img src={processedPoster} alt={actualTitle} className='absolute inset-0 w-full h-full object-cover' loading='lazy' onLoad={() => setIsLoading(true)} />)}
 
               {/* 悬浮遮罩 */}
               <div
@@ -1295,83 +1129,7 @@ const VideoCard = forwardRef<VideoCardHandle, VideoCardProps>(
             )}
 
             {/* 评分徽章 */}
-            {config.showRating &&
-              rate &&
-              (rateBadgeStyle === 'flag' ? (
-                <div
-                  className={`mtv-rate mtv-rate-flag ${rateTier}`}
-                  style={
-                    {
-                      WebkitTouchCallout: 'none',
-                    } as React.CSSProperties
-                  }
-                  onContextMenu={(e) => {
-                    e.preventDefault();
-                    return false;
-                  }}
-                >
-                  <span className='mtv-rate-stars'>
-                    {[0, 1, 2].map((i) => (
-                      <svg key={i} viewBox='0 0 24 24'>
-                        <path d='M12 2l2.9 6.3 6.9.7-5.1 4.6 1.4 6.8L12 17.8 5.9 20.4l1.4-6.8L2.2 9l6.9-.7z' />
-                      </svg>
-                    ))}
-                  </span>
-                  {rate}
-                </div>
-              ) : rateBadgeStyle === 'medal' ? (
-                <div
-                  className={`mtv-rate mtv-rate-medal ${rateTier}`}
-                  style={
-                    {
-                      WebkitTouchCallout: 'none',
-                    } as React.CSSProperties
-                  }
-                  onContextMenu={(e) => {
-                    e.preventDefault();
-                    return false;
-                  }}
-                >
-                  <span className='mtv-rate-ribbons'>
-                    <i className='l' />
-                    <i className='r' />
-                  </span>
-                  <span className='mtv-rate-disc'>
-                    <span className='mtv-rate-stars'>
-                      <span className='srow'>
-                        <svg viewBox='0 0 24 24'>
-                          <path d='M12 2l2.9 6.3 6.9.7-5.1 4.6 1.4 6.8L12 17.8 5.9 20.4l1.4-6.8L2.2 9l6.9-.7z' />
-                        </svg>
-                      </span>
-                      <span className='srow'>
-                        {[0, 1].map((i) => (
-                          <svg key={i} viewBox='0 0 24 24'>
-                            <path d='M12 2l2.9 6.3 6.9.7-5.1 4.6 1.4 6.8L12 17.8 5.9 20.4l1.4-6.8L2.2 9l6.9-.7z' />
-                          </svg>
-                        ))}
-                      </span>
-                    </span>
-                    {rate}
-                  </span>
-                </div>
-              ) : (
-                <div
-                  className='absolute top-2 right-2 bg-pink-500 text-white text-xs font-bold w-7 h-7 rounded-full flex items-center justify-center shadow-md transition-all duration-300 ease-out group-hover:scale-110'
-                  style={
-                    {
-                      WebkitUserSelect: 'none',
-                      userSelect: 'none',
-                      WebkitTouchCallout: 'none',
-                    } as React.CSSProperties
-                  }
-                  onContextMenu={(e) => {
-                    e.preventDefault();
-                    return false;
-                  }}
-                >
-                  {rate}
-                </div>
-              ))}
+
 
             {/* 竖向模式：顶部直链地址显示 */}
             {orientation === 'vertical' &&
@@ -1493,8 +1251,6 @@ const VideoCard = forwardRef<VideoCardHandle, VideoCardProps>(
                     className={`inline-block border rounded px-1 py-0.5 text-[8px] text-white/90 bg-black/60 ${
                       actualSource === 'xiaoya'
                         ? 'border-blue-500'
-                        : isNetdiskSource(actualSource)
-                        ? 'border-purple-500'
                         : actualSource === 'openlist' ||
                           actualSource === 'emby' ||
                           actualSource?.startsWith('emby_')
@@ -1531,11 +1287,7 @@ const VideoCard = forwardRef<VideoCardHandle, VideoCardProps>(
               actualDoubanId &&
               actualDoubanId !== 0 && (
                 <a
-                  href={
-                    isBangumi
-                      ? getBangumiSubjectUrl(actualDoubanId.toString())
-                      : `https://movie.douban.com/subject/${actualDoubanId.toString()}`
-                  }
+                  href={`https://movie.douban.com/subject/${actualDoubanId.toString()}`}
                   target='_blank'
                   rel='noopener noreferrer'
                   onClick={(e) => e.stopPropagation()}
@@ -1916,8 +1668,6 @@ const VideoCard = forwardRef<VideoCardHandle, VideoCardProps>(
                               className={`inline-block border rounded px-1 py-0.5 text-[8px] text-white/90 bg-black/30 backdrop-blur-sm ${
                                 actualSource === 'xiaoya'
                                   ? 'border-blue-500'
-                                  : isNetdiskSource(actualSource)
-                                  ? 'border-purple-500'
                                   : actualSource === 'openlist' ||
                                     actualSource === 'emby' ||
                                     actualSource?.startsWith('emby_')
@@ -2169,29 +1919,7 @@ const VideoCard = forwardRef<VideoCardHandle, VideoCardProps>(
         />
 
         {/* AI问片面板 - 只在打开或正在流式响应时渲染 */}
-        {aiEnabled && (showAIChat || isAIStreaming) && (
-          <AIChatPanel
-            isOpen={showAIChat}
-            onClose={() => setShowAIChat(false)}
-            onStreamingChange={setIsAIStreaming}
-            context={{
-              title: actualTitle,
-              year: actualYear,
-              douban_id: actualDoubanId,
-              tmdb_id,
-              type: actualSearchType as 'movie' | 'tv',
-              currentEpisode,
-            }}
-            welcomeMessage={
-              aiDefaultMessageWithVideo
-                ? aiDefaultMessageWithVideo.replace(
-                    '{title}',
-                    actualTitle || ''
-                  )
-                : `想了解《${actualTitle}》的更多信息吗？我可以帮你查询剧情、演员、评价等。`
-            }
-          />
-        )}
+
 
         {/* 详情面板 */}
         {showDetailPanel && (
@@ -2201,8 +1929,8 @@ const VideoCard = forwardRef<VideoCardHandle, VideoCardProps>(
             title={actualTitle}
             poster={displayPoster}
             doubanId={actualDoubanId}
-            bangumiId={isBangumi ? actualDoubanId : undefined}
-            isBangumi={isBangumi}
+
+
             tmdbId={tmdb_id}
             type={actualSearchType as 'movie' | 'tv'}
             year={actualYear}
@@ -2215,23 +1943,8 @@ const VideoCard = forwardRef<VideoCardHandle, VideoCardProps>(
         )}
 
         {/* 添加追番订阅（管理员） */}
-        <AnimeSubscribeModal
-          isOpen={showAnimeSubscribe}
-          onClose={() => setShowAnimeSubscribe(false)}
-          initialTitle={actualTitle}
-          initialLastEpisode={
-            from === 'playrecord' && currentEpisode ? currentEpisode : 0
-          }
-          onSuccess={() => {
-            setAnimeSubscribeToast('已添加追番订阅');
-            window.setTimeout(() => setAnimeSubscribeToast(''), 2500);
-          }}
-        />
-        {animeSubscribeToast ? (
-          <div className='fixed bottom-24 left-1/2 z-[10001] -translate-x-1/2 rounded-full bg-green-600 px-4 py-2 text-sm text-white shadow-lg'>
-            {animeSubscribeToast}
-          </div>
-        ) : null}
+
+        {null}
 
         {/* 图片查看器 */}
         {showImageViewer && (

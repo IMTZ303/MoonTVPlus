@@ -17,10 +17,8 @@ import {
   getChildCategories,
   getParentCategories,
   isHierarchicalCategories,
-  pickDefaultSelection,
 } from '@/lib/category-tree';
 import { ApiSite } from '@/lib/config';
-import { appendSpecialSourceParam } from '@/lib/special-source.client';
 import { SearchResult } from '@/lib/types';
 
 import CapsuleSwitch from '@/components/CapsuleSwitch';
@@ -200,147 +198,16 @@ function SourceSearchPageClient() {
   }, []);
 
   // 加载用户可用的视频源
-  useEffect(() => {
-    if (!restoreChecked) return;
 
-    const fetchApiSites = async () => {
-      setIsLoadingSources(true);
-      try {
-        const response = await fetch(appendSpecialSourceParam('/api/source-search/sources'));
-        const data = await response.json();
-        if (data.sources && Array.isArray(data.sources)) {
-          setApiSites(data.sources);
-          // 默认选择第一个源（恢复的源仍可用时保持不变）
-          if (data.sources.length > 0) {
-            setSelectedSource((prev) =>
-              prev && data.sources.some((site: ApiSite) => site.key === prev)
-                ? prev
-                : data.sources[0].key
-            );
-          }
-        }
-      } catch (error) {
-        console.error('Failed to load API sources:', error);
-      } finally {
-        setIsLoadingSources(false);
-      }
-    };
-
-    fetchApiSites();
-  }, [restoreChecked]);
 
   // 当选择的源变化时，加载分类列表
-  useEffect(() => {
-    if (!restoreChecked || !selectedSource) return;
 
-    // 恢复场景下分类与列表都来自快照，无需重新拉取
-    if (skipCategoryFetchRef.current) {
-      skipCategoryFetchRef.current = false;
-      return;
-    }
-
-    const fetchCategories = async () => {
-      setIsLoadingCategories(true);
-      setCategories([]);
-      setSelectedParentCategory('');
-      setSelectedCategory('');
-      setVideos([]);
-      setCurrentPage(1);
-      setHasMore(true);
-      try {
-        const response = await fetch(
-          appendSpecialSourceParam(`/api/source-search/categories?source=${encodeURIComponent(selectedSource)}`)
-        );
-        const data = await response.json();
-        if (data.categories && Array.isArray(data.categories)) {
-          const list = data.categories as Category[];
-          setCategories(list);
-          // 两级分类时默认选中第一个类型下的第一个子分类
-          const { parent, category } = pickDefaultSelection(list);
-          setSelectedParentCategory(parent);
-          setSelectedCategory(category);
-        }
-      } catch (error) {
-        console.error('Failed to load categories:', error);
-      } finally {
-        setIsLoadingCategories(false);
-      }
-    };
-
-    fetchCategories();
-  }, [restoreChecked, selectedSource]);
 
   // 当选择的分类或页码变化时，加载视频列表（浏览模式）
-  useEffect(() => {
-    if (!restoreChecked || viewMode !== 'browse' || !selectedSource || !selectedCategory)
-      return;
 
-    // 恢复场景下列表已来自快照，跳过本次请求
-    if (skipVideoFetchRef.current) {
-      skipVideoFetchRef.current = false;
-      return;
-    }
-
-    const fetchVideos = async () => {
-      setIsLoadingVideos(true);
-      try {
-        const response = await fetch(
-          appendSpecialSourceParam(`/api/source-search/videos?source=${encodeURIComponent(selectedSource)}&categoryId=${encodeURIComponent(selectedCategory)}&page=${currentPage}`)
-        );
-        const data = await response.json();
-        if (data.results && Array.isArray(data.results)) {
-          if (currentPage === 1) {
-            setVideos(data.results);
-          } else {
-            setVideos((prev) => [...prev, ...data.results]);
-          }
-          setHasMore(data.page < data.pageCount);
-        }
-      } catch (error) {
-        console.error('Failed to load videos:', error);
-      } finally {
-        setIsLoadingVideos(false);
-      }
-    };
-
-    fetchVideos();
-  }, [restoreChecked, selectedSource, selectedCategory, currentPage, viewMode]);
 
   // 当搜索关键词或页码变化时，执行搜索（搜索模式）
-  useEffect(() => {
-    if (!restoreChecked || viewMode !== 'search' || !selectedSource || !searchKeyword)
-      return;
 
-    // 恢复场景下列表已来自快照，跳过本次请求
-    if (skipVideoFetchRef.current) {
-      skipVideoFetchRef.current = false;
-      return;
-    }
-
-    const searchVideos = async () => {
-      setIsLoadingVideos(true);
-      try {
-        const response = await fetch(
-          appendSpecialSourceParam(`/api/source-search/search?source=${encodeURIComponent(selectedSource)}&keyword=${encodeURIComponent(searchKeyword)}&page=${currentPage}`)
-        );
-        const data = await response.json();
-        if (data.results && Array.isArray(data.results)) {
-          if (currentPage === 1) {
-            setVideos(data.results);
-          } else {
-            setVideos((prev) => [...prev, ...data.results]);
-          }
-          setHasMore(data.page < data.pageCount);
-        }
-      } catch (error) {
-        console.error('Failed to search videos:', error);
-      } finally {
-        setIsLoadingVideos(false);
-      }
-    };
-
-    searchVideos();
-  }, [restoreChecked, selectedSource, searchKeyword, currentPage, viewMode]);
 
   // 切换一级分类（类型）时，落到该类型下第一个子分类并重置到第一页
   const handleParentCategoryChange = (value: string) => {

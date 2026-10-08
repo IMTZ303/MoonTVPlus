@@ -20,13 +20,7 @@ import {
 export const runtime = 'nodejs';
 
 // 读取存储类型环境变量，默认 localstorage
-const STORAGE_TYPE =
-  (process.env.NEXT_PUBLIC_STORAGE_TYPE as
-    | 'localstorage'
-    | 'redis'
-    | 'upstash'
-    | 'kvrocks'
-    | undefined) || 'localstorage';
+const STORAGE_TYPE = 'upstash';
 
 function buildLoginResponse(authToken?: string | null) {
   const body: Record<string, unknown> = { ok: true };
@@ -91,7 +85,7 @@ async function generateAuthCookie(
     authData.timestamp = now; // Access Token 时间戳
 
     // 生成 Refresh Token（仅数据库模式）
-    if (!includePassword && STORAGE_TYPE !== 'localstorage') {
+    if (!includePassword && true) {
       const tokenId = generateTokenId();
       const refreshToken = generateRefreshToken();
       const refreshExpires = now + TOKEN_CONFIG.REFRESH_TOKEN_AGE;
@@ -202,63 +196,7 @@ export async function POST(req: NextRequest) {
     const siteConfig = adminConfig.SiteConfig;
 
     // 本地 / localStorage 模式——仅校验固定密码
-    if (STORAGE_TYPE === 'localstorage') {
-      const envPassword = process.env.PASSWORD;
 
-      // 未配置 PASSWORD 时直接放行
-      if (!envPassword) {
-        const response = buildLoginResponse();
-
-        // 清除可能存在的认证cookie
-        response.cookies.set('auth', '', {
-          path: '/',
-          expires: new Date(0),
-          sameSite: 'lax',
-          httpOnly: false,
-        });
-
-        return response;
-      }
-
-      const { password } = await req.json();
-      if (typeof password !== 'string') {
-        return NextResponse.json({ error: '密码不能为空' }, { status: 400 });
-      }
-
-      if (password !== envPassword) {
-        recordLoginFailure(clientIp);
-        return NextResponse.json(
-          { ok: false, error: '密码错误' },
-          { status: 401 }
-        );
-      }
-
-      recordLoginSuccess(clientIp);
-
-      // 验证成功，设置认证cookie
-      const username = process.env.USERNAME || 'default';
-      const deviceInfo = getDeviceInfo(req);
-      const cookieValue = await generateAuthCookie(
-        username,
-        password,
-        'owner',
-        true,
-        deviceInfo
-      ); // localstorage 模式包含 password
-      const response = buildLoginResponse(cookieValue);
-      const expires = new Date();
-      expires.setDate(expires.getDate() + 60); // 60天过期（Refresh Token 有效期）
-
-      response.cookies.set('auth', cookieValue, {
-        path: '/',
-        expires,
-        sameSite: 'lax',
-        httpOnly: false, // 允许客户端访问
-        secure: false,
-      });
-
-      return response;
-    }
 
     // 数据库 / redis 模式——校验用户名并尝试连接数据库
     const { username, password, turnstileToken } = await req.json();

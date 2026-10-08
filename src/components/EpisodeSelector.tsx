@@ -9,7 +9,6 @@ import {
   Wand2,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { createPortal } from 'react-dom';
 import React, {
   useCallback,
   useEffect,
@@ -17,21 +16,19 @@ import React, {
   useRef,
   useState,
 } from 'react';
+import { createPortal } from 'react-dom';
 
-import type { DanmakuComment,DanmakuEpisode,DanmakuSelection } from '@/lib/danmaku/types';
 import { generateStorageKey, getCachedPlayRecordsSnapshot } from '@/lib/db.client';
 import { isEpisodeHiddenByFilter } from '@/lib/episode-filter';
 import { loadAllLocalEpisodeProgressRecords } from '@/lib/episode-progress';
-import { isNetdiskSource } from '@/lib/netdisk/source';
 import { EpisodeFilterConfig,SearchResult } from '@/lib/types';
-import { getVideoResolutionFromM3u8, SpeedTestError } from '@/lib/utils';
 import type { SpeedTestErrorType } from '@/lib/utils';
+import { getVideoResolutionFromM3u8, SpeedTestError } from '@/lib/utils';
+import { useLongPress } from '@/hooks/useLongPress';
 
-import DanmakuPanel from '@/components/DanmakuPanel';
 import EpisodeFilterSettings from '@/components/EpisodeFilterSettings';
 import EpisodeTitleCorrectDialog from '@/components/EpisodeTitleCorrectDialog';
 import ProxyImage from '@/components/ProxyImage';
-import { useLongPress } from '@/hooks/useLongPress';
 
 /** 选集按钮上显示的短标签（数字等）；全名仍保留在 originalTitle 供长按查看 */
 function getEpisodeDisplayLabel(
@@ -281,13 +278,11 @@ interface EpisodeSelectorProps {
   /** 预计算的测速结果，避免重复测速 */
   precomputedVideoInfo?: Map<string, VideoInfo>;
   /** 弹幕相关 */
-  onDanmakuSelect?: (selection: DanmakuSelection) => void;
-  currentDanmakuSelection?: DanmakuSelection | null;
-  onUploadDanmaku?: (comments: DanmakuComment[]) => void;
+
+
+
   /** 手动选集弹幕时回传该源的完整分集列表，供刷新分集标题 */
-  onDanmakuEpisodesLoaded?: (episodes: DanmakuEpisode[]) => void;
-  /** 观影室房员状态 - 禁用选集和换源，但保留弹幕 */
-  isRoomMember?: boolean;
+
   /** 外层使用 TMDB 背景图时，提升深色文字对比度 */
   useLightTextOnBackdrop?: boolean;
   /** 集数过滤配置 */
@@ -316,11 +311,10 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
   sourceSearchError = null,
   backgroundSourcesLoading = false,
   precomputedVideoInfo,
-  onDanmakuSelect,
-  currentDanmakuSelection,
-  onUploadDanmaku,
-  onDanmakuEpisodesLoaded,
-  isRoomMember = false,
+
+
+
+
   useLightTextOnBackdrop = false,
   episodeFilterConfig = null,
   onFilterConfigUpdate,
@@ -560,18 +554,7 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
     setWatchedEpisodes(watched);
   }, [currentSource, currentId, episodeProgressContentKey, totalEpisodes, value]);
 
-  // 主要的 tab 状态：'danmaku' | 'episodes' | 'sources'
-  // 默认显示选集选项卡，但如果是房员则显示弹幕
-  const [activeTab, setActiveTab] = useState<'danmaku' | 'episodes' | 'sources'>(
-    isRoomMember ? 'danmaku' : 'episodes'
-  );
-
-  // 当房员状态变化时，自动切换到弹幕选项卡
-  useEffect(() => {
-    if (isRoomMember && (activeTab === 'episodes' || activeTab === 'sources')) {
-      setActiveTab('danmaku');
-    }
-  }, [isRoomMember, activeTab]);
+  const [activeTab, setActiveTab] = useState<'episodes' | 'sources'>('episodes');
 
   // 当前分组索引（0 开始）
   const initialPage = Math.max(
@@ -1054,9 +1037,9 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
         {/* 选集选项卡 - 仅在多集时显示 */}
         {totalEpisodes > 1 && (
           <div
-            onClick={() => !isRoomMember && setActiveTab('episodes')}
+            onClick={() => setActiveTab('episodes')}
             className={`flex-1 py-3 px-6 text-center transition-all duration-200 font-medium relative
-              ${isRoomMember ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}
+              cursor-pointer
               ${activeTab === 'episodes'
                 ? 'text-green-600 dark:text-green-400'
                 : inactiveTabClass
@@ -1064,15 +1047,14 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
             `.trim()}
           >
             选集
-            {isRoomMember && <span className="ml-1 text-xs">🔒</span>}
           </div>
         )}
 
         {/* 换源选项卡 */}
         <div
-          onClick={() => !isRoomMember && handleSourceTabClick()}
+          onClick={handleSourceTabClick}
           className={`flex-1 py-3 px-6 text-center transition-all duration-200 font-medium relative
-            ${isRoomMember ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}
+            cursor-pointer
             ${activeTab === 'sources'
               ? 'text-green-600 dark:text-green-400'
               : inactiveTabClass
@@ -1080,40 +1062,16 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
           `.trim()}
         >
           换源
-          {isRoomMember && <span className="ml-1 text-xs">🔒</span>}
         </div>
 
-        {/* 弹幕选项卡 */}
-        <div
-          onClick={() => setActiveTab('danmaku')}
-          className={`flex-1 py-3 px-6 text-center cursor-pointer transition-all duration-200 font-medium
-            ${activeTab === 'danmaku'
-              ? 'text-green-600 dark:text-green-400'
-              : inactiveTabClass
-            }
-          `.trim()}
-        >
-          弹幕
-        </div>
       </div>
-
-      {/* 弹幕 Tab 内容 */}
-      {activeTab === 'danmaku' && onDanmakuSelect && (
-        <div className='flex-1 min-h-0 overflow-hidden'>
-          <DanmakuPanel
-            videoTitle={videoTitle || ''}
-            currentEpisodeIndex={value - 1}
-            onDanmakuSelect={onDanmakuSelect}
-            currentSelection={currentDanmakuSelection || null}
-            onUploadDanmaku={onUploadDanmaku}
-            onEpisodesLoaded={onDanmakuEpisodesLoaded}
-          />
-        </div>
-      )}
 
       {/* 选集 Tab 内容 */}
       {activeTab === 'episodes' && (
         <>
+          <div className={`text-xs ${mutedTextClass} py-2`}>
+            共 {totalEpisodes} 集
+          </div>
           {/* 分类标签 */}
           <div className='relative z-30 flex items-center gap-4 mb-4 border-b border-gray-300 dark:border-gray-700 -mx-6 px-6 flex-shrink-0'>
             <div
@@ -1283,7 +1241,7 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
                       isWatched={watchedEpisodes.has(episodeNumber)}
                       originalTitle={episodes_titles?.[episodeNumber - 1]}
                       inactiveEpisodeClass={inactiveEpisodeClass}
-                      enableOriginalNamePopup={isNetdiskSource(currentSource)}
+                      enableOriginalNamePopup={!!episodes_titles?.[episodeNumber - 1]}
                       onSelect={handleEpisodeClick}
                       onShowOriginalName={showEpisodeNamePopup}
                     />
@@ -1293,6 +1251,7 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
           )}
         </>
       )}
+
 
       {/* 换源 Tab 内容 */}
       {activeTab === 'sources' && (
@@ -1474,7 +1433,7 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
                           {/* 源名称和集数信息 - 垂直居中 */}
                           <div className='flex items-center justify-between'>
                             <span className={`text-xs px-2 py-1 border rounded ${sourcePillTextClass} ${
-                              source.source === 'xiaoya' ? 'border-blue-500' : isNetdiskSource(source.source) ? 'border-purple-500' : source.source === 'openlist' || source.source === 'emby' || source.source?.startsWith('emby_')
+                              source.source === 'xiaoya' ? 'border-blue-500' : source.source === 'openlist' || source.source === 'emby' || source.source?.startsWith('emby_')
                            ? 'border-yellow-500'
                                 : 'border-gray-500/60'
                       }`}>

@@ -2,12 +2,12 @@
 
 'use client';
 
-import { Blend, Cat, Clover, Container, Film, Globe, Home, Star, Tv, TvMinimalPlay, Users } from 'lucide-react';
+import { Blend, Cat, Clover, Container, Film, Globe, Home, Star, Tv, TvMinimalPlay } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 
-import { useWatchRoomContextSafe } from './WatchRoomProvider';
+
 
 interface MobileBottomNavProps {
   /**
@@ -19,7 +19,7 @@ interface MobileBottomNavProps {
 const MobileBottomNav = ({ activePath }: MobileBottomNavProps) => {
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const watchRoomContext = useWatchRoomContextSafe();
+
 
   // 直接使用当前路由状态，确保立即响应路由变化
   const getCurrentFullPath = () => {
@@ -28,9 +28,7 @@ const MobileBottomNav = ({ activePath }: MobileBottomNavProps) => {
   };
   const currentActive = activePath ?? getCurrentFullPath();
 
-  if (pathname === '/watch-room/screen') {
-    return null;
-  }
+
 
   const [navItems, setNavItems] = useState([
     { icon: Home, label: '首页', href: '/' },
@@ -125,13 +123,7 @@ const MobileBottomNav = ({ activePath }: MobileBottomNavProps) => {
     }
 
     // 如果启用观影室，添加观影室入口
-    if (watchRoomContext?.isEnabled) {
-      items.push({
-        icon: Users,
-        label: '观影室',
-        href: '/watch-room',
-      });
-    }
+
 
     // 添加自定义分类（如果有）
     if (runtimeConfig?.CUSTOM_CATEGORIES?.length > 0) {
@@ -143,7 +135,7 @@ const MobileBottomNav = ({ activePath }: MobileBottomNavProps) => {
     }
 
     setNavItems(items);
-  }, [watchRoomContext?.isEnabled]);
+  }, []);
 
   const isActive = (href: string) => {
     const typeMatch = href.match(/type=([^&]+)/)?.[1];

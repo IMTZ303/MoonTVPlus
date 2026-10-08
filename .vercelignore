@@ -1,0 +1,11 @@
+node_modules
+.next
+.git
+.data
+data
+.pnpm-store
+artifacts
+.maintenance
+.env*
+.convert-upstash.cjs
+*.log

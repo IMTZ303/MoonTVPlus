@@ -8,8 +8,8 @@ import { createPortal } from 'react-dom';
 import type { PlayRecord } from '@/lib/db.client';
 import {
   clearAllPlayRecords,
-  getCachedPlayRecordsSnapshot,
   getAllPlayRecords,
+  getCachedPlayRecordsSnapshot,
   subscribeToDataUpdates,
 } from '@/lib/db.client';
 
@@ -24,8 +24,8 @@ interface ContinueWatchingProps {
 type PlayRecordItem = PlayRecord & { key: string };
 
 export default function ContinueWatching({ className }: ContinueWatchingProps) {
-  const storageType = process.env.NEXT_PUBLIC_STORAGE_TYPE || 'localstorage';
-  const cachedDisplayLimit = storageType !== 'localstorage' ? 10 : undefined;
+  const storageType = 'upstash';
+  const cachedDisplayLimit = 10;
   const [playRecords, setPlayRecords] = useState<PlayRecordItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);

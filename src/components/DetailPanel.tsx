@@ -13,12 +13,9 @@ import {
   Users,
   X,
 } from 'lucide-react';
-import Image from 'next/image';
 import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 
-import { getBangumiSubject, getBangumiSubjectUrl } from '@/lib/bangumi.client';
-import { appendSpecialSourceParam } from '@/lib/special-source.client';
 import { getTMDBImageUrl } from '@/lib/tmdb.client';
 import { processImageUrl } from '@/lib/utils';
 
@@ -31,8 +28,8 @@ interface DetailPanelProps {
   title: string;
   poster?: string;
   doubanId?: number;
-  bangumiId?: number;
-  isBangumi?: boolean;
+
+
   tmdbId?: number;
   type?: 'movie' | 'tv';
   year?: string;
@@ -152,8 +149,8 @@ const DetailPanel: React.FC<DetailPanelProps> = ({
   title,
   poster,
   doubanId,
-  bangumiId,
-  isBangumi,
+
+
   tmdbId,
   type = 'movie',
   year,
@@ -222,12 +219,7 @@ const DetailPanel: React.FC<DetailPanelProps> = ({
       return `https://movie.douban.com/subject/${doubanId}`;
     }
 
-    if (currentSource === 'bangumi') {
-      const actualBangumiId = bangumiId || doubanId;
-      if (actualBangumiId) {
-        return getBangumiSubjectUrl(actualBangumiId);
-      }
-    }
+
 
     if (currentSource === 'tmdb') {
       const actualTmdbId = detailData?.tmdbId || tmdbId;
@@ -676,11 +668,11 @@ const DetailPanel: React.FC<DetailPanelProps> = ({
           if (sourceId && source) {
             try {
               const response = await fetch(
-                appendSpecialSourceParam(`/api/source-detail?id=${encodeURIComponent(
+                `/api/source-detail?id=${encodeURIComponent(
                   sourceId
                 )}&source=${encodeURIComponent(
                   source
-                )}&title=${encodeURIComponent(title)}`)
+                )}&title=${encodeURIComponent(title)}`
               );
               if (response.ok) {
                 const data = await response.json();
@@ -705,70 +697,10 @@ const DetailPanel: React.FC<DetailPanelProps> = ({
         }
 
         // 优先使用 Bangumi ID（因为 isBangumi 为 true 时，doubanId 实际上是 bangumiId）
-        if (bangumiId || (isBangumi && doubanId)) {
-          setCurrentSource('bangumi');
-          setOriginalSource('bangumi');
-          const actualBangumiId = bangumiId || doubanId;
-          if (!actualBangumiId) {
-            throw new Error('Bangumi ID 缺失');
-          }
-          const data = await getBangumiSubject(actualBangumiId);
 
-          const detailData = {
-            title: data.name_cn || data.name,
-            originalTitle: data.name,
-            year: data.date ? data.date.substring(0, 4) : undefined,
-            poster: data.images?.large || poster,
-            rating: data.rating
-              ? {
-                  value: data.rating.score,
-                  count: data.rating.total,
-                }
-              : undefined,
-            intro: data.summary,
-            genres: data.tags?.map((tag: any) => tag.name).slice(0, 5),
-            episodesCount: data.eps,
-            releaseDate: data.date,
-          };
-          setDetailData(detailData);
-          setOriginalDetailData(detailData);
-          return;
-        }
 
         // 使用豆瓣ID
-        if (doubanId && !isBangumi) {
-          setCurrentSource('douban');
-          setOriginalSource('douban');
-          const response = await fetch(`/api/douban/detail?id=${doubanId}`);
-          if (!response.ok) {
-            throw new Error('获取豆瓣详情失败');
-          }
-          const data = await response.json();
 
-          const detailData = {
-            title: data.title,
-            originalTitle: data.original_title,
-            year: data.year,
-            poster: data.pic?.large || data.pic?.normal || poster,
-            rating: data.rating
-              ? {
-                  value: data.rating.value,
-                  count: data.rating.count,
-                }
-              : undefined,
-            intro: data.intro,
-            genres: data.genres,
-            directors: data.directors,
-            actors: data.actors,
-            countries: data.countries,
-            languages: data.languages,
-            duration: data.durations?.[0],
-            episodesCount: data.episodes_count,
-          };
-          setDetailData(detailData);
-          setOriginalDetailData(detailData);
-          return;
-        }
 
         // 使用 TMDB 搜索
         if (title) {
@@ -818,8 +750,8 @@ const DetailPanel: React.FC<DetailPanelProps> = ({
   }, [
     isOpen,
     doubanId,
-    bangumiId,
-    isBangumi,
+
+
     tmdbId,
     title,
     type,

@@ -1,13 +1,9 @@
 /* eslint-disable react-hooks/exhaustive-deps, @typescript-eslint/no-explicit-any,@typescript-eslint/no-non-null-assertion,no-empty */
 'use client';
-
 import {
   ChevronUp,
-  Film,
   Grid2x2,
-  HardDrive,
   List,
-  Magnet,
   RefreshCw,
   Search,
   X,
@@ -21,7 +17,6 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import { createPortal } from 'react-dom';
 
 import { isAnimeCategoryText } from '@/lib/anime-keyword-expr';
 import { getAuthInfoFromBrowserCookie } from '@/lib/auth';
@@ -32,15 +27,12 @@ import {
   getSearchHistory,
   subscribeToDataUpdates,
 } from '@/lib/db.client';
+import { loadTraditionalToSimplifiedConverter } from '@/lib/traditional-to-simplified';
 import { SearchResult } from '@/lib/types';
-import { appendSpecialSourceParam, isSpecialSourcesEnabledOnDevice } from '@/lib/special-source.client';
 import { processImageUrl } from '@/lib/utils';
 
-import AcgSearch from '@/components/AcgSearch';
-import CapsuleSwitch from '@/components/CapsuleSwitch';
 import ImageViewer from '@/components/ImageViewer';
 import PageLayout from '@/components/PageLayout';
-import PansouSearch, { CLOUD_TYPE_NAMES } from '@/components/PansouSearch';
 import ProxyImage from '@/components/ProxyImage';
 import SearchResultFilter, {
   SearchFilterCategory,
@@ -48,11 +40,9 @@ import SearchResultFilter, {
 import SearchSuggestions from '@/components/SearchSuggestions';
 import VideoCard, { VideoCardHandle } from '@/components/VideoCard';
 import VirtualScrollableGrid from '@/components/VirtualScrollableGrid';
-import { loadTraditionalToSimplifiedConverter } from '@/lib/danmaku/traditional-to-simplified';
 
-const PANSOU_CLOUD_TYPE_OPTIONS = Object.entries(CLOUD_TYPE_NAMES).map(
-  ([value, label]) => ({ value, label })
-);
+
+
 
 type SearchCachePayload = {
   status: 'complete' | 'partial';
@@ -71,26 +61,20 @@ function SearchPageClient() {
     'video'
   );
   // Pansou 搜索触发标志
-  const [triggerPansouSearch, setTriggerPansouSearch] = useState(false);
+
   // ACG 搜索触发标志
-  const [triggerAcgSearch, setTriggerAcgSearch] = useState(false);
-  const [selectedPansouCloudTypes, setSelectedPansouCloudTypes] = useState<
-    string[]
-  >([]);
-  const [pansouCloudFilterOpen, setPansouCloudFilterOpen] = useState(false);
-  const [pansouCloudFilterPosition, setPansouCloudFilterPosition] = useState({
-    x: 0,
-    y: 0,
-    width: 0,
-  });
-  const pansouCloudFilterButtonRef = useRef<HTMLButtonElement | null>(null);
-  const pansouCloudFilterDropdownRef = useRef<HTMLDivElement | null>(null);
+
+
+
+
+
+
   // 用户权限
   const [userRole, setUserRole] = useState<'owner' | 'admin' | 'user' | null>(
     null
   );
-  const [netdiskSearchEnabled, setNetdiskSearchEnabled] = useState(false);
-  const [magnetSearchEnabled, setMagnetSearchEnabled] = useState(false);
+
+
   const [privateLibrarySearchEnabled, setPrivateLibrarySearchEnabled] =
     useState(false);
   const [featureFlagsReady, setFeatureFlagsReady] = useState(false);
@@ -140,7 +124,7 @@ function SearchPageClient() {
   // 生成缓存键
   const getCacheKey = (query: string) => {
     const suffixParts = [
-      isSpecialSourcesEnabledOnDevice() ? 'special' : '',
+      '',
       privateLibraryOnly ? 'private' : '',
     ].filter(Boolean);
     const suffix = suffixParts.length > 0 ? `_${suffixParts.join('_')}` : '';
@@ -539,35 +523,7 @@ function SearchPageClient() {
       sourceEntries: Array<{ source: string; source_name: string }>
     ) => [
       { label: '全部来源', value: 'all' },
-      ...Array.from(
-        new Map(
-          sourceEntries
-            .filter(
-              (item) =>
-                item.source &&
-                item.source_name &&
-                item.source.trim() !== '' &&
-                item.source_name.trim() !== ''
-            )
-            .map((item) => [item.source, item.source_name])
-        ).entries()
-      )
-        .sort((a, b) => {
-          const aIsOpenList = a[0] === 'openlist';
-          const bIsOpenList = b[0] === 'openlist';
-          const aIsEmby = a[0] === 'emby' || a[0].startsWith('emby_');
-          const bIsEmby = b[0] === 'emby' || b[0].startsWith('emby_');
 
-          const aPriority = aIsOpenList ? 100 : aIsEmby ? 90 : 0;
-          const bPriority = bIsOpenList ? 100 : bIsEmby ? 90 : 0;
-
-          if (aPriority !== bPriority) {
-            return bPriority - aPriority;
-          }
-
-          return a[1].localeCompare(b[1]);
-        })
-        .map(([value, label]) => ({ label, value })),
     ];
 
     const buildTitleOptions = (titles: string[]) => [
@@ -1048,11 +1004,11 @@ function SearchPageClient() {
   useEffect(() => {
     // 如果切换到网盘搜索选项卡，且有搜索关键词，且已显示结果，则触发搜索
     if (activeTab === 'pansou' && searchQuery.trim() && showResults) {
-      setTriggerPansouSearch((prev) => !prev);
+
     }
     // 如果切换到 ACG 磁力搜索选项卡，且有搜索关键词，且已显示结果，则触发搜索
     if (activeTab === 'acg' && searchQuery.trim() && showResults) {
-      setTriggerAcgSearch((prev) => !prev);
+
     }
   }, [activeTab]);
 
@@ -1061,8 +1017,8 @@ function SearchPageClient() {
     const authInfo = getAuthInfoFromBrowserCookie();
     setUserRole(authInfo?.role || null);
     const runtimeConfig = (window as any).RUNTIME_CONFIG || {};
-    setNetdiskSearchEnabled(!!runtimeConfig.NETDISK_SEARCH_ENABLED);
-    setMagnetSearchEnabled(!!runtimeConfig.MAGNET_SEARCH_ENABLED);
+
+
     const hasPrivateLibrary = !!runtimeConfig.PRIVATE_LIBRARY_ENABLED;
     setPrivateLibrarySearchEnabled(hasPrivateLibrary);
     // 无私人影库权限时，强制关闭"只搜私人影库"（防止 localStorage 残留旧设置继续过滤）
@@ -1161,37 +1117,7 @@ function SearchPageClient() {
     };
   }, []);
 
-  useEffect(() => {
-    if (!featureFlagsReady) return;
 
-    const typeParam = searchParams.get('type');
-    const query = searchParams.get('q');
-
-    if (typeParam === 'pansou') {
-      if (netdiskSearchEnabled) {
-        setActiveTab('pansou');
-      } else {
-        setActiveTab('video');
-      }
-    } else if (typeParam === 'acg') {
-      if (magnetSearchEnabled) {
-        setActiveTab('acg');
-      } else {
-        setActiveTab('video');
-      }
-    } else {
-      setActiveTab('video');
-    }
-
-    if (!query) {
-      document.getElementById('searchInput')?.focus();
-    }
-  }, [
-    searchParams,
-    netdiskSearchEnabled,
-    magnetSearchEnabled,
-    featureFlagsReady,
-  ]);
 
   useEffect(() => {
     // 等待转换器和私人影库搜索设置初始化完成
@@ -1344,7 +1270,7 @@ function SearchPageClient() {
         const searchUrl = `/api/search/ws?q=${encodeURIComponent(trimmed)}${
           privateLibraryOnly ? '&privateOnly=1' : ''
         }`;
-        const es = new EventSource(appendSpecialSourceParam(searchUrl));
+        const es = new EventSource(searchUrl);
         eventSourceRef.current = es;
 
         es.onmessage = (event) => {
@@ -1452,30 +1378,7 @@ function SearchPageClient() {
         const searchUrl = `/api/search?q=${encodeURIComponent(trimmed)}${
           privateLibraryOnly ? '&privateOnly=1' : ''
         }`;
-        fetch(appendSpecialSourceParam(searchUrl))
-          .then((response) => response.json())
-          .then((data) => {
-            if (currentQueryRef.current !== trimmed) return;
 
-            if (data.results && Array.isArray(data.results)) {
-              const activeYearOrder =
-                viewMode === 'agg' ? filterAgg.yearOrder : filterAll.yearOrder;
-              const results: SearchResult[] =
-                activeYearOrder === 'none'
-                  ? sortBatchForNoOrder(data.results as SearchResult[])
-                  : (data.results as SearchResult[]);
-
-              setSearchResults(results);
-              // 缓存搜索结果
-              setCachedResults(trimmed, results);
-              setTotalSources(1);
-              setCompletedSources(1);
-            }
-            setIsLoading(false);
-          })
-          .catch(() => {
-            setIsLoading(false);
-          });
       }
       setShowSuggestions(false);
 
@@ -1493,32 +1396,7 @@ function SearchPageClient() {
     privateLibraryOnly,
   ]);
 
-  useEffect(() => {
-    if (!featureFlagsReady) return;
 
-    const typeParam = searchParams.get('type');
-    const query = searchParams.get('q');
-    if (!query || !query.trim()) return;
-
-    if (typeParam === 'pansou' && netdiskSearchEnabled) {
-      setSearchQuery(query);
-      setShowResults(true);
-      setTimeout(() => {
-        setTriggerPansouSearch((prev) => !prev);
-      }, 100);
-    } else if (typeParam === 'acg' && magnetSearchEnabled) {
-      setSearchQuery(query);
-      setShowResults(true);
-      setTimeout(() => {
-        setTriggerAcgSearch((prev) => !prev);
-      }, 100);
-    }
-  }, [
-    searchParams,
-    netdiskSearchEnabled,
-    magnetSearchEnabled,
-    featureFlagsReady,
-  ]);
 
   // 组件卸载时，关闭可能存在的连接
   useEffect(() => {
@@ -1591,11 +1469,11 @@ function SearchPageClient() {
     } else if (activeTab === 'pansou') {
       // 网盘搜索 - 触发搜索
       router.push(`/search?q=${encodeURIComponent(trimmed)}&type=pansou`);
-      setTriggerPansouSearch((prev) => !prev); // 切换状态来触发搜索
+       // 切换状态来触发搜索
     } else if (activeTab === 'acg') {
       // ACG 磁力搜索 - 触发搜索
       router.push(`/search?q=${encodeURIComponent(trimmed)}&type=acg`);
-      setTriggerAcgSearch((prev) => !prev);
+
     }
   };
 
@@ -1636,124 +1514,25 @@ function SearchPageClient() {
       router.push(
         `/search?q=${encodeURIComponent(processedSuggestion)}&type=pansou`
       );
-      setTriggerPansouSearch((prev) => !prev);
+
     } else if (activeTab === 'acg') {
       // ACG 磁力搜索 - 触发搜索
       router.push(
         `/search?q=${encodeURIComponent(processedSuggestion)}&type=acg`
       );
-      setTriggerAcgSearch((prev) => !prev);
+
     }
   };
 
-  const togglePansouCloudType = (cloudType: string) => {
-    setSelectedPansouCloudTypes((prev) =>
-      prev.includes(cloudType)
-        ? prev.filter((type) => type !== cloudType)
-        : [...prev, cloudType]
-    );
-  };
 
-  const calculatePansouCloudFilterPosition = () => {
-    const element = pansouCloudFilterButtonRef.current;
-    if (!element) return;
 
-    const rect = element.getBoundingClientRect();
-    const viewportWidth = window.innerWidth;
-    const padding = 16;
-    const width = Math.min(320, viewportWidth - padding * 2);
-    let x = rect.left;
 
-    if (x + width > viewportWidth - padding) {
-      x = viewportWidth - width - padding;
-    }
-    if (x < padding) {
-      x = padding;
-    }
 
-    setPansouCloudFilterPosition({ x, y: rect.bottom + 8, width });
-  };
 
-  const selectedPansouCloudTypeLabels = selectedPansouCloudTypes
-    .map((type) => CLOUD_TYPE_NAMES[type] || type)
-    .filter(Boolean);
 
-  const renderPansouCloudTypeFilter = () => {
-    const hasFilter = selectedPansouCloudTypes.length > 0;
-    const displayText = hasFilter
-      ? selectedPansouCloudTypes.length === 1
-        ? selectedPansouCloudTypeLabels[0]
-        : `网盘类型 · ${selectedPansouCloudTypes.length}`
-      : '网盘类型';
 
-    return (
-      <div className='mx-auto mt-4 flex max-w-2xl justify-end overflow-visible'>
-        <button
-          ref={pansouCloudFilterButtonRef}
-          type='button'
-          onClick={() => {
-            if (!pansouCloudFilterOpen) {
-              calculatePansouCloudFilterPosition();
-            }
-            setPansouCloudFilterOpen((prev) => !prev);
-          }}
-          className={`relative z-10 rounded-full px-3 py-1 text-xs font-medium transition-all duration-200 whitespace-nowrap focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 dark:focus:ring-offset-gray-900 ${
-            hasFilter
-              ? 'cursor-pointer text-green-600 hover:text-green-700 dark:text-green-400 dark:hover:text-green-300'
-              : 'cursor-pointer text-gray-700 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100'
-          }`}
-          aria-expanded={pansouCloudFilterOpen}
-          aria-haspopup='listbox'
-        >
-          <span>{displayText}</span>
-          <svg
-            className={`ml-1 inline-block h-3 w-3 transition-transform duration-200 ${
-              pansouCloudFilterOpen ? 'rotate-180' : ''
-            }`}
-            fill='none'
-            stroke='currentColor'
-            viewBox='0 0 24 24'
-            aria-hidden='true'
-          >
-            <path
-              strokeLinecap='round'
-              strokeLinejoin='round'
-              strokeWidth={2}
-              d='M19 9l-7 7-7-7'
-            />
-          </svg>
-        </button>
-      </div>
-    );
-  };
 
-  useEffect(() => {
-    if (!pansouCloudFilterOpen) return;
 
-    const handleClickOutside = (event: MouseEvent) => {
-      const target = event.target as Node;
-      if (
-        pansouCloudFilterButtonRef.current?.contains(target) ||
-        pansouCloudFilterDropdownRef.current?.contains(target)
-      ) {
-        return;
-      }
-      setPansouCloudFilterOpen(false);
-    };
-
-    const handleScroll = () => setPansouCloudFilterOpen(false);
-    const handleResize = () => calculatePansouCloudFilterPosition();
-
-    document.addEventListener('mousedown', handleClickOutside);
-    document.body.addEventListener('scroll', handleScroll, { passive: true });
-    window.addEventListener('resize', handleResize);
-
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-      document.body.removeEventListener('scroll', handleScroll);
-      window.removeEventListener('resize', handleResize);
-    };
-  }, [pansouCloudFilterOpen]);
 
   // 返回顶部功能
   const scrollToTop = () => {
@@ -1836,9 +1615,9 @@ function SearchPageClient() {
                     `/search?q=${encodeURIComponent(trimmed)}&type=${activeTab}`
                   );
                   if (activeTab === 'pansou') {
-                    setTriggerPansouSearch((prev) => !prev);
+
                   } else if (activeTab === 'acg') {
-                    setTriggerAcgSearch((prev) => !prev);
+
                   }
                 }}
               />
@@ -1847,48 +1626,12 @@ function SearchPageClient() {
 
           {/* 选项卡 */}
           <div className='flex justify-center mt-6'>
-            <CapsuleSwitch
-              options={[
-                {
-                  label: '影视搜索',
-                  value: 'video',
-                  icon: <Film size={16} />,
-                },
-                ...(netdiskSearchEnabled
-                  ? [
-                      {
-                        label: '网盘搜索',
-                        value: 'pansou' as const,
-                        icon: <HardDrive size={16} />,
-                      },
-                    ]
-                  : []),
-                ...(magnetSearchEnabled
-                  ? [
-                      {
-                        label: '动漫磁力',
-                        value: 'acg' as const,
-                        icon: <Magnet size={16} />,
-                      },
-                    ]
-                  : []),
-              ]}
-              active={activeTab}
-              onChange={(value) =>
-                handleTabChange(value as 'video' | 'pansou' | 'acg')
-              }
-            />
+
           </div>
 
-          {activeTab === 'pansou' &&
-            netdiskSearchEnabled &&
-            renderPansouCloudTypeFilter()}
 
-          {activeTab === 'acg' && magnetSearchEnabled && (
-            <div className='mt-4'>
-              <AcgSearch keyword={searchQuery} controlsOnly />
-            </div>
-          )}
+
+
 
           {activeTab === 'video' && !showResults && (
             <div className='mx-auto mt-4 flex max-w-2xl justify-end'>
@@ -1997,52 +1740,7 @@ function SearchPageClient() {
 
         </div>
 
-        {pansouCloudFilterOpen &&
-          createPortal(
-            <div
-              ref={pansouCloudFilterDropdownRef}
-              className='fixed z-[9999] max-h-[50vh] overflow-y-auto rounded-xl border border-gray-200/50 bg-white/95 p-2 backdrop-blur-sm dark:border-gray-700/50 dark:bg-gray-800/95'
-              style={{
-                left: `${pansouCloudFilterPosition.x}px`,
-                top: `${pansouCloudFilterPosition.y}px`,
-                width: `${pansouCloudFilterPosition.width}px`,
-              }}
-            >
-              <div className='grid grid-cols-3 gap-1.5 sm:grid-cols-4'>
-                <button
-                  type='button'
-                  onClick={() => setSelectedPansouCloudTypes([])}
-                  className={`rounded-lg px-2 py-1.5 text-left text-xs transition-all duration-200 ${
-                    selectedPansouCloudTypes.length === 0
-                      ? 'border border-green-200 bg-green-100 text-green-700 dark:border-green-700 dark:bg-green-900/30 dark:text-green-400'
-                      : 'text-gray-700 hover:bg-gray-100/80 dark:text-gray-300 dark:hover:bg-gray-700/80'
-                  }`}
-                  aria-pressed={selectedPansouCloudTypes.length === 0}
-                >
-                  全部类型
-                </button>
-                {PANSOU_CLOUD_TYPE_OPTIONS.map(({ value, label }) => {
-                  const selected = selectedPansouCloudTypes.includes(value);
-                  return (
-                    <button
-                      key={value}
-                      type='button'
-                      onClick={() => togglePansouCloudType(value)}
-                      className={`rounded-lg px-2 py-1.5 text-left text-xs transition-all duration-200 ${
-                        selected
-                          ? 'border border-green-200 bg-green-100 text-green-700 dark:border-green-700 dark:bg-green-900/30 dark:text-green-400'
-                          : 'text-gray-700 hover:bg-gray-100/80 dark:text-gray-300 dark:hover:bg-gray-700/80'
-                      }`}
-                      aria-pressed={selected}
-                    >
-                      {label}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>,
-            document.body
-          )}
+
 
         {/* 搜索结果或搜索历史 */}
         <div
@@ -2434,11 +2132,7 @@ function SearchPageClient() {
                       网盘搜索结果
                     </h2>
                   </div>
-                  <PansouSearch
-                    keyword={searchQuery}
-                    triggerSearch={triggerPansouSearch}
-                    cloudTypes={selectedPansouCloudTypes}
-                  />
+
                 </>
               ) : (
                 <>
@@ -2448,11 +2142,7 @@ function SearchPageClient() {
                       动漫磁力搜索结果
                     </h2>
                   </div>
-                  <AcgSearch
-                    keyword={searchQuery}
-                    triggerSearch={triggerAcgSearch}
-                    showSourceSwitch={false}
-                  />
+
                 </>
               )}
             </section>
@@ -2497,7 +2187,7 @@ function SearchPageClient() {
                               item.trim()
                             )}&type=pansou`
                           );
-                          setTriggerPansouSearch((prev) => !prev);
+
                         } else if (activeTab === 'acg') {
                           // ACG 磁力搜索
                           router.push(
@@ -2505,7 +2195,7 @@ function SearchPageClient() {
                               item.trim()
                             )}&type=acg`
                           );
-                          setTriggerAcgSearch((prev) => !prev);
+
                         }
                       }}
                       className='px-4 py-2 bg-gray-500/10 hover:bg-gray-300 rounded-full text-sm text-gray-700 transition-colors duration-200 dark:bg-gray-700/50 dark:hover:bg-gray-600 dark:text-gray-300'

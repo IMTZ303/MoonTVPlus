@@ -4,22 +4,22 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { isAccessTokenInvalidated } from '@/lib/access-token-invalidation';
 import { getAuthInfoFromCookie } from '@/lib/auth';
-import { TOKEN_CONFIG } from '@/lib/refresh-token';
-import { isTVModeEnabled, resolveLoginPath } from '@/lib/tv-mode';
+const resolveLoginPath = (_pathname: string) => '/login';
+
+import { TOKEN_CONFIG } from '@/lib/token-config';
+
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  if (!isTVModeEnabled() && isTVModePath(pathname)) {
-    return new NextResponse('Not Found', { status: 404 });
-  }
+
 
   // 跳过不需要认证的路径
   if (shouldSkipAuth(pathname)) {
     return NextResponse.next();
   }
 
-  const storageType = process.env.NEXT_PUBLIC_STORAGE_TYPE || 'localstorage';
+  const storageType = 'upstash';
 
   if (!process.env.PASSWORD) {
     // 如果未配置密码，重定向到警告页面
@@ -35,12 +35,7 @@ export async function middleware(request: NextRequest) {
   }
 
   // localstorage模式：在middleware中完成验证
-  if (storageType === 'localstorage') {
-    if (!authInfo.password || authInfo.password !== process.env.PASSWORD) {
-      return handleAuthFailure(request, pathname);
-    }
-    return NextResponse.next();
-  }
+
 
   // 其他模式：验证签名和时间戳，支持自动续期
   // 检查是否有用户名（非localStorage模式下密码不存储在cookie中）
@@ -180,13 +175,11 @@ function shouldSkipAuth(pathname: string): boolean {
   return skipPaths.some((path) => pathname.startsWith(path));
 }
 
-function isTVModePath(pathname: string): boolean {
-  return pathname === '/tv' || pathname.startsWith('/tv/') || pathname.startsWith('/api/tv-remote/');
-}
+
 
 // 配置middleware匹配规则
 export const config = {
   matcher: [
-    '/((?!_next/static|_next/image|favicon.ico|login|register|oidc-register|qr-login|warning|tv/login|api/login|api/register|api/logout|api/auth/oidc|api/auth/qr|api/auth/refresh|api/telegram/login|api/telegram/config|api/telegram/webhook|api/cron/|api/server-config|api/proxy-m3u8|api/cms-proxy|api/tvbox/subscribe|api/theme/css|api/openlist/cms-proxy|api/openlist/play|api/openlist/proxy|api/emby/cms-proxy|api/emby/play|api/emby/subtitle|api/emby/sources|tvbox/).*)',
+    '/((?!_next/static|_next/image|favicon.ico|login|warning|api/login|api/logout|api/auth/refresh|api/server-config|api/proxy-m3u8|api/cms-proxy|api/tvbox/subscribe|tvbox/).*)',
   ],
 };

@@ -6,9 +6,9 @@ import { gzip } from 'zlib';
 
 import { getAuthInfoFromCookie } from '@/lib/auth';
 import { SimpleCrypto } from '@/lib/crypto';
+import { clearProgress,updateProgress } from '@/lib/data-migration-progress';
 import { db } from '@/lib/db';
 import { CURRENT_VERSION } from '@/lib/version';
-import { updateProgress, clearProgress } from '@/lib/data-migration-progress';
 
 export const runtime = 'nodejs';
 
@@ -17,13 +17,8 @@ const gzipAsync = promisify(gzip);
 export async function POST(req: NextRequest) {
   try {
     // 检查存储类型
-    const storageType = process.env.NEXT_PUBLIC_STORAGE_TYPE || 'localstorage';
-    if (storageType === 'localstorage') {
-      return NextResponse.json(
-        { error: '不支持本地存储进行数据迁移' },
-        { status: 400 }
-      );
-    }
+    const storageType = 'upstash';
+
 
     // 验证身份和权限
     const authInfo = getAuthInfoFromCookie(req);
@@ -43,8 +38,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: '无法获取配置' }, { status: 500 });
     }
 
+    const { password } = await req.json();
     // 解析请求体获取密码
-    const { password, includeMangaData = true, includeBookData = true } = await req.json();
+
     if (!password || typeof password !== 'string') {
       return NextResponse.json({ error: '请提供加密密码' }, { status: 400 });
     }
@@ -109,38 +105,14 @@ export async function POST(req: NextRequest) {
             return null;
           }
 
-          // 并行获取用户的所有数据
-          const [
-            playRecords,
-            favorites,
-            searchHistory,
-            skipConfigs,
-            musicV2History,
-            playlists,
-            mangaShelf,
-            mangaReadRecords,
-            bookShelf,
-            bookReadRecords
-          ] = await Promise.all([
-            db.getAllPlayRecords(username),
-            db.getAllFavorites(username),
-            db.getSearchHistory(username),
-            db.getAllSkipConfigs(username),
-            db.listMusicV2History(username),
-            db.listMusicV2Playlists(username),
-            includeMangaData ? db.getAllMangaShelf(username) : Promise.resolve({}),
-            includeMangaData ? db.getAllMangaReadRecords(username) : Promise.resolve({}),
-            includeBookData ? db.getAllBookShelf(username) : Promise.resolve({}),
-            includeBookData ? db.getAllBookReadRecords(username) : Promise.resolve({})
+          const [playRecords, favorites, searchHistory, skipConfigs] = await Promise.all([
+            db.getAllPlayRecords(username), db.getAllFavorites(username), db.getSearchHistory(username), db.getAllSkipConfigs(username),
           ]);
+          // 并行获取用户的所有数据
+
 
           // 并行获取所有歌单的歌曲
-          const playlistsWithSongs = await Promise.all(
-            playlists.map(async (playlist) => {
-              const songs = await db.listMusicV2PlaylistItems(playlist.id);
-              return { ...playlist, songs };
-            })
-          );
+
 
           return {
             username,
@@ -149,10 +121,10 @@ export async function POST(req: NextRequest) {
               favorites,
               searchHistory,
               skipConfigs,
-              musicV2History,
-              musicV2Playlists: playlistsWithSongs,
-              ...(includeMangaData ? { mangaData: { shelf: mangaShelf, readRecords: mangaReadRecords } } : {}),
-              ...(includeBookData ? { bookData: { shelf: bookShelf, readRecords: bookReadRecords } } : {}),
+
+
+              ...({}),
+              ...({}),
               passwordV2: finalPasswordV2
             }
           };
@@ -239,18 +211,13 @@ async function getUserPasswordV2(username: string): Promise<string | null> {
     if (!storage) return null;
 
     // 检查存储类型
-    const storageType = process.env.NEXT_PUBLIC_STORAGE_TYPE || 'localstorage';
+    const storageType = 'upstash';
 
     // PostgreSQL 存储：使用 getUserPasswordHash 方法
-    if (storageType === 'postgres') {
-      if (typeof storage.getUserPasswordHash === 'function') {
-        return await storage.getUserPasswordHash(username);
-      }
-      return null;
-    }
+
 
     // D1/Turso 存储：使用 getUserPasswordHash 方法
-    if (storageType === 'd1' || storageType === 'turso') {
+    {
       if (typeof storage.getUserPasswordHash === 'function') {
         return await storage.getUserPasswordHash(username);
       }
