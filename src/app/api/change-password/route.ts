@@ -11,17 +11,10 @@ import { getUserDevices, revokeRefreshToken } from '@/lib/refresh-token';
 export const runtime = 'nodejs';
 
 export async function POST(request: NextRequest) {
-  const storageType = process.env.NEXT_PUBLIC_STORAGE_TYPE || 'localstorage';
+  const storageType = 'sqlite';
 
   // 不支持 localstorage 模式
-  if (storageType === 'localstorage') {
-    return NextResponse.json(
-      {
-        error: '不支持本地存储模式修改密码',
-      },
-      { status: 400 }
-    );
-  }
+
 
   try {
     const body = await request.json();
@@ -62,7 +55,7 @@ export async function POST(request: NextRequest) {
         if (device.tokenId !== currentTokenId) {
           invalidateDeviceAccessToken(username, device.tokenId);
           await revokeRefreshToken(username, device.tokenId);
-          await storage.deletePushSubscriptionsByTokenId?.(username, device.tokenId);
+
           console.log(`Revoked token ${device.tokenId} for ${username} after password change`);
         }
       }

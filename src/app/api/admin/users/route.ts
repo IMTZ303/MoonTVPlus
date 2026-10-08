@@ -7,15 +7,8 @@ import { db } from '@/lib/db';
 export const runtime = 'nodejs';
 
 export async function GET(request: NextRequest) {
-  const storageType = process.env.NEXT_PUBLIC_STORAGE_TYPE || 'localstorage';
-  if (storageType === 'localstorage') {
-    return NextResponse.json(
-      {
-        error: '不支持本地存储进行用户列表查询',
-      },
-      { status: 400 }
-    );
-  }
+  const storageType = 'sqlite';
+
 
   try {
     const authInfo = getAuthInfoFromCookie(request);

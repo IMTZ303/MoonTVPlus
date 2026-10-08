@@ -3,7 +3,6 @@
 'use client';
 
 import {
-  AlertCircle,
   Download,
   GitBranch,
   Heart,
@@ -12,7 +11,6 @@ import {
   Radio,
   RefreshCw,
   Tv,
-  X,
 } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -27,12 +25,11 @@ import {
   subscribeToDataUpdates,
 } from '@/lib/db.client';
 import { parseCustomTimeFormat } from '@/lib/time';
-import { useLiveSync } from '@/hooks/useLiveSync';
 
 import EpgScrollableRow from '@/components/EpgScrollableRow';
 import LoadingStyle, {
-  LoadingErrorStyle,
   type LoadingStep,
+  LoadingErrorStyle,
 } from '@/components/LoadingStyle';
 import PageLayout from '@/components/PageLayout';
 
@@ -215,19 +212,7 @@ function LivePageClient() {
   const currentChannelRef = useRef<LiveChannel | null>(null);
 
   // 观影室同步功能
-  const liveSync = useLiveSync({
-    currentChannelId: currentChannel?.id || '',
-    currentChannelName: currentChannel?.name || '',
-    currentChannelUrl: currentChannel?.url || '',
-    onChannelChange: (channelId, _channelUrl) => {
-      // 房员接收到频道切换指令
-      if (!currentChannels || !Array.isArray(currentChannels)) return;
-      const channel = currentChannels.find(c => c.id === channelId);
-      if (channel) {
-        handleChannelChange(channel);
-      }
-    },
-  });
+
 
   // EPG数据清洗函数 - 去除重叠的节目，保留时间较短的，显示今日节目（18点后包含明天10点前的节目）
   const cleanEpgData = (programs: Array<{ start: string; end: string; title: string }>) => {
@@ -2487,207 +2472,11 @@ function LivePageClient() {
                 )}
 
                 {/* 视频加载蒙层 */}
-                {isVideoLoading && (
-                  <div className='absolute inset-0 bg-black/85 backdrop-blur-sm rounded-xl overflow-hidden shadow-lg border border-white/0 dark:border-white/30 flex items-center justify-center z-[500] transition-all duration-300'>
-                    <div className='text-center max-w-md mx-auto px-6'>
-                      {/* 三种加载款式（旧版那一套各页自备） */}
-                      <LoadingStyle
-                        steps={LIVE_PLAYER_STEPS}
-                        activeStepIdx={playerStepIdx}
-                        message='加载中'
-                        onDark
-                        legacy={
-                          <>
-                            <div className='relative mb-8'>
-                              <div className='relative mx-auto w-24 h-24 bg-gradient-to-r from-green-500 to-emerald-600 rounded-2xl shadow-2xl flex items-center justify-center transform hover:scale-105 transition-transform duration-300'>
-                                <div className='text-white text-4xl'>📺</div>
-                                <div className='absolute -inset-2 bg-gradient-to-r from-green-500 to-emerald-600 rounded-2xl opacity-20 animate-spin'></div>
-                              </div>
-                            </div>
-                            <div className='space-y-2'>
-                              <p className='text-xl font-semibold text-white animate-pulse'>
-                                🔄 IPTV 加载中...
-                              </p>
-                            </div>
-                          </>
-                        }
-                      />
-                    </div>
-                  </div>
-                )}
+
               </div>
 
               {/* 外部播放器按钮 - 观影室同步状态下隐藏 */}
-              {videoUrl && !liveSync.isInRoom && (
-                <div className='mt-3 px-2 lg:flex-shrink-0 flex justify-end'>
-                  <div className='bg-white/50 dark:bg-gray-800/50 backdrop-blur-sm rounded-lg p-2 border border-gray-200/50 dark:border-gray-700/50 w-full lg:w-auto overflow-x-auto'>
-                    <div className='flex gap-1.5 justify-end lg:flex-wrap items-center'>
-                      {/* 网页播放 */}
-                      <button
-                        onClick={(e) => {
-                          e.preventDefault();
-                          // 在新标签页打开视频URL
-                          window.open(videoUrl, '_blank');
-                        }}
-                        className='group relative flex items-center justify-center gap-1 w-8 h-8 lg:w-auto lg:h-auto lg:px-2 lg:py-1.5 bg-white hover:bg-gray-100 dark:bg-gray-700 dark:hover:bg-gray-600 text-xs font-medium rounded-md transition-all duration-200 shadow-sm hover:shadow-md cursor-pointer overflow-hidden border border-gray-300 dark:border-gray-600 flex-shrink-0'
-                        title='网页播放'
-                      >
-                        <svg
-                          className='w-4 h-4 flex-shrink-0 text-gray-700 dark:text-gray-200'
-                          fill='none'
-                          stroke='currentColor'
-                          viewBox='0 0 24 24'
-                          xmlns='http://www.w3.org/2000/svg'
-                        >
-                          <path
-                            strokeLinecap='round'
-                            strokeLinejoin='round'
-                            strokeWidth={2}
-                            d='M21 12a9 9 0 11-18 0 9 9 0 0118 0z'
-                          />
-                          <path
-                            strokeLinecap='round'
-                            strokeLinejoin='round'
-                            strokeWidth={2}
-                            d='M9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z'
-                          />
-                        </svg>
-                        <span className='hidden lg:inline max-w-0 group-hover:max-w-[100px] overflow-hidden whitespace-nowrap transition-all duration-200 ease-in-out text-gray-700 dark:text-gray-200'>
-                          网页播放
-                        </span>
-                      </button>
 
-                      {/* PotPlayer */}
-                      <button
-                        onClick={(e) => {
-                          e.preventDefault();
-                          // 直接使用原始 URL,不使用代理
-                          window.open(`potplayer://${videoUrl}`, '_blank');
-                        }}
-                        className='group relative flex items-center justify-center gap-1 w-8 h-8 lg:w-auto lg:h-auto lg:px-2 lg:py-1.5 bg-white hover:bg-gray-100 dark:bg-gray-700 dark:hover:bg-gray-600 text-xs font-medium rounded-md transition-all duration-200 shadow-sm hover:shadow-md cursor-pointer overflow-hidden border border-gray-300 dark:border-gray-600 flex-shrink-0'
-                        title='PotPlayer'
-                      >
-                        <img
-                          src='/players/potplayer.png'
-                          alt='PotPlayer'
-                          className='w-4 h-4 flex-shrink-0'
-                        />
-                        <span className='hidden lg:inline max-w-0 group-hover:max-w-[100px] overflow-hidden whitespace-nowrap transition-all duration-200 ease-in-out text-gray-700 dark:text-gray-200'>
-                          PotPlayer
-                        </span>
-                      </button>
-
-                      {/* VLC */}
-                      <button
-                        onClick={(e) => {
-                          e.preventDefault();
-                          // 直接使用原始 URL,不使用代理
-                          window.open(`vlc://${videoUrl}`, '_blank');
-                        }}
-                        className='group relative flex items-center justify-center gap-1 w-8 h-8 lg:w-auto lg:h-auto lg:px-2 lg:py-1.5 bg-white hover:bg-gray-100 dark:bg-gray-700 dark:hover:bg-gray-600 text-xs font-medium rounded-md transition-all duration-200 shadow-sm hover:shadow-md cursor-pointer overflow-hidden border border-gray-300 dark:border-gray-600 flex-shrink-0'
-                        title='VLC'
-                      >
-                        <img
-                          src='/players/vlc.png'
-                          alt='VLC'
-                          className='w-4 h-4 flex-shrink-0'
-                        />
-                        <span className='hidden lg:inline max-w-0 group-hover:max-w-[100px] overflow-hidden whitespace-nowrap transition-all duration-200 ease-in-out text-gray-700 dark:text-gray-200'>
-                          VLC
-                        </span>
-                      </button>
-
-                      {/* MPV */}
-                      <button
-                        onClick={(e) => {
-                          e.preventDefault();
-                          // 直接使用原始 URL,不使用代理
-                          window.open(`mpv://${videoUrl}`, '_blank');
-                        }}
-                        className='group relative flex items-center justify-center gap-1 w-8 h-8 lg:w-auto lg:h-auto lg:px-2 lg:py-1.5 bg-white hover:bg-gray-100 dark:bg-gray-700 dark:hover:bg-gray-600 text-xs font-medium rounded-md transition-all duration-200 shadow-sm hover:shadow-md cursor-pointer overflow-hidden border border-gray-300 dark:border-gray-600 flex-shrink-0'
-                        title='MPV'
-                      >
-                        <img
-                          src='/players/mpv.png'
-                          alt='MPV'
-                          className='w-4 h-4 flex-shrink-0'
-                        />
-                        <span className='hidden lg:inline max-w-0 group-hover:max-w-[100px] overflow-hidden whitespace-nowrap transition-all duration-200 ease-in-out text-gray-700 dark:text-gray-200'>
-                          MPV
-                        </span>
-                      </button>
-
-                      {/* MX Player */}
-                      <button
-                        onClick={(e) => {
-                          e.preventDefault();
-                          // 直接使用原始 URL,不使用代理
-                          window.open(
-                            `intent://${videoUrl}#Intent;package=com.mxtech.videoplayer.ad;S.title=${encodeURIComponent(
-                              currentChannel?.name || '直播'
-                            )};end`,
-                            '_blank'
-                          );
-                        }}
-                        className='group relative flex items-center justify-center gap-1 w-8 h-8 lg:w-auto lg:h-auto lg:px-2 lg:py-1.5 bg-white hover:bg-gray-100 dark:bg-gray-700 dark:hover:bg-gray-600 text-xs font-medium rounded-md transition-all duration-200 shadow-sm hover:shadow-md cursor-pointer overflow-hidden border border-gray-300 dark:border-gray-600 flex-shrink-0'
-                        title='MX Player'
-                      >
-                        <img
-                          src='/players/mxplayer.png'
-                          alt='MX Player'
-                          className='w-4 h-4 flex-shrink-0'
-                        />
-                        <span className='hidden lg:inline max-w-0 group-hover:max-w-[100px] overflow-hidden whitespace-nowrap transition-all duration-200 ease-in-out text-gray-700 dark:text-gray-200'>
-                          MX Player
-                        </span>
-                      </button>
-
-                      {/* nPlayer */}
-                      <button
-                        onClick={(e) => {
-                          e.preventDefault();
-                          // 直接使用原始 URL,不使用代理
-                          window.open(`nplayer-${videoUrl}`, '_blank');
-                        }}
-                        className='group relative flex items-center justify-center gap-1 w-8 h-8 lg:w-auto lg:h-auto lg:px-2 lg:py-1.5 bg-white hover:bg-gray-100 dark:bg-gray-700 dark:hover:bg-gray-600 text-xs font-medium rounded-md transition-all duration-200 shadow-sm hover:shadow-md cursor-pointer overflow-hidden border border-gray-300 dark:border-gray-600 flex-shrink-0'
-                        title='nPlayer'
-                      >
-                        <img
-                          src='/players/nplayer.png'
-                          alt='nPlayer'
-                          className='w-4 h-4 flex-shrink-0'
-                        />
-                        <span className='hidden lg:inline max-w-0 group-hover:max-w-[100px] overflow-hidden whitespace-nowrap transition-all duration-200 ease-in-out text-gray-700 dark:text-gray-200'>
-                          nPlayer
-                        </span>
-                      </button>
-
-                      {/* IINA */}
-                      <button
-                        onClick={(e) => {
-                          e.preventDefault();
-                          // 直接使用原始 URL,不使用代理
-                          window.open(
-                            `iina://weblink?url=${encodeURIComponent(videoUrl)}`,
-                            '_blank'
-                          );
-                        }}
-                        className='group relative flex items-center justify-center gap-1 w-8 h-8 lg:w-auto lg:h-auto lg:px-2 lg:py-1.5 bg-white hover:bg-gray-100 dark:bg-gray-700 dark:hover:bg-gray-600 text-xs font-medium rounded-md transition-all duration-200 shadow-sm hover:shadow-md cursor-pointer overflow-hidden border border-gray-300 dark:border-gray-600 flex-shrink-0'
-                        title='IINA'
-                      >
-                        <img
-                          src='/players/iina.png'
-                          alt='IINA'
-                          className='w-4 h-4 flex-shrink-0'
-                        />
-                        <span className='hidden lg:inline max-w-0 group-hover:max-w-[100px] overflow-hidden whitespace-nowrap transition-all duration-200 ease-in-out text-gray-700 dark:text-gray-200'>
-                          IINA
-                        </span>
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
             </div>
 
             {/* 频道列表 */}

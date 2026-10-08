@@ -8,15 +8,8 @@ import { db } from '@/lib/db';
 export const runtime = 'nodejs';
 
 export async function POST(request: NextRequest) {
-  const storageType = process.env.NEXT_PUBLIC_STORAGE_TYPE || 'localstorage';
-  if (storageType === 'localstorage') {
-    return NextResponse.json(
-      {
-        error: '不支持本地存储进行数据迁移',
-      },
-      { status: 400 }
-    );
-  }
+  const storageType = 'sqlite';
+
 
   try {
     const authInfo = getAuthInfoFromCookie(request);

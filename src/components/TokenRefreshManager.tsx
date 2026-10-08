@@ -2,9 +2,12 @@
 
 import { useEffect } from 'react';
 
-import { getAuthInfoFromBrowserCookie, clearAuthCookie } from '@/lib/auth';
-import { TOKEN_CONFIG } from '@/lib/refresh-token';
-import { isLoginPathname, resolveLoginPath } from '@/lib/tv-mode';
+import { clearAuthCookie,getAuthInfoFromBrowserCookie } from '@/lib/auth';
+const isLoginPathname = (pathname: string) => pathname === '/login';
+const resolveLoginPath = (_pathname: string) => '/login';
+
+import { TOKEN_CONFIG } from '@/lib/token-config';
+
 
 /**
  * Token 自动刷新管理器

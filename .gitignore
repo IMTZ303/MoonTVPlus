@@ -75,3 +75,11 @@ scripts/test
 
 .agents/
 skills-lock.json
+
+.maintenance/
+data/
+.env
+.env.local
+/artifacts/
+.vercel/
+.vercel

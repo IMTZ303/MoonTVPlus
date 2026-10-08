@@ -2,17 +2,15 @@
 
 import { useCallback,useEffect, useState } from 'react';
 
-import { useEnableComments } from '@/hooks/useEnableComments';
-import { useRecommendationDataSource } from '@/hooks/useRecommendationDataSource';
-
-import ScrollableRow from '@/components/ScrollableRow';
-import VideoCard from '@/components/VideoCard';
-
 import {
   getRecommendationCache,
   recommendationCacheKeys,
   setRecommendationCache,
 } from '@/lib/recommendations/cache';
+import { useRecommendationDataSource } from '@/hooks/useRecommendationDataSource';
+
+import ScrollableRow from '@/components/ScrollableRow';
+import VideoCard from '@/components/VideoCard';
 
 interface Recommendation {
   doubanId?: string;
@@ -35,7 +33,7 @@ export default function SmartRecommendations({
   const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
   const [loading, setLoading] = useState(false);
 
-  const enableComments = useEnableComments();
+
   const recommendationDataSource = useRecommendationDataSource();
 
   // 是否允许在豆瓣数据为空/失败时回退到 TMDB（仅混合模式）
@@ -55,17 +53,15 @@ export default function SmartRecommendations({
         return 'tmdb';
       case 'Douban':
         // 豆瓣类型需要检查开关和豆瓣ID
-        return enableComments && doubanId ? 'douban' : null;
+        return null;
       case 'Mixed':
         // 混合模式：优先豆瓣，无豆瓣ID或关闭评论开关时使用TMDB
-        if (!enableComments || !doubanId) {
-          return 'tmdb';
-        }
+
         return 'douban';
       default:
-        return doubanId && enableComments ? 'douban' : 'tmdb';
+        return 'tmdb';
     }
-  }, [recommendationDataSource, enableComments, doubanId]);
+  }, [recommendationDataSource,  doubanId]);
 
   const fetchTMDBRecommendations = useCallback(async () => {
     if (!videoTitle) return;

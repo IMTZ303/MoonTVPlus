@@ -30,15 +30,8 @@ interface BaseBody {
 }
 
 export async function POST(request: NextRequest) {
-  const storageType = process.env.NEXT_PUBLIC_STORAGE_TYPE || 'localstorage';
-  if (storageType === 'localstorage') {
-    return NextResponse.json(
-      {
-        error: '不支持本地存储进行管理员配置',
-      },
-      { status: 400 }
-    );
-  }
+  const storageType = 'sqlite';
+
 
   try {
     const body = (await request.json()) as BaseBody & Record<string, any>;
@@ -152,9 +145,7 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ error: '该源不可删除' }, { status: 400 });
         }
         adminConfig.SourceConfig.splice(idx, 1);
-        adminConfig.SpecialSourceApis = (adminConfig.SpecialSourceApis || []).filter(
-          (api) => api !== key
-        );
+
         adminConfig.ClientAdSourceApis = (adminConfig.ClientAdSourceApis || []).filter(
           (api) => api !== key
         );
@@ -238,9 +229,7 @@ export async function POST(request: NextRequest) {
           }
         });
 
-        adminConfig.SpecialSourceApis = (adminConfig.SpecialSourceApis || []).filter(
-          (api) => !keysToDelete.includes(api)
-        );
+
         adminConfig.ClientAdSourceApis = (adminConfig.ClientAdSourceApis || []).filter(
           (api) => !keysToDelete.includes(api)
         );
@@ -310,38 +299,9 @@ export async function POST(request: NextRequest) {
         break;
       }
 
-      case 'toggle_special_source': {
-        const { key } = body as { key?: string };
-        if (!key)
-          return NextResponse.json({ error: '缺少 key 参数' }, { status: 400 });
-        const entry = adminConfig.SourceConfig.find((s) => s.key === key);
-        if (!entry)
-          return NextResponse.json({ error: '源不存在' }, { status: 404 });
 
-        const specialApis = new Set(adminConfig.SpecialSourceApis || []);
-        if (specialApis.has(key)) {
-          specialApis.delete(key);
-        } else {
-          specialApis.add(key);
-        }
-        adminConfig.SpecialSourceApis = Array.from(specialApis).filter((api) =>
-          adminConfig.SourceConfig.some((source) => source.key === api)
-        );
-        break;
-      }
 
-      case 'set_special_sources': {
-        const { keys } = body as { keys?: string[] };
-        if (!Array.isArray(keys)) {
-          return NextResponse.json({ error: 'keys 参数格式错误' }, { status: 400 });
-        }
 
-        const sourceKeySet = new Set(adminConfig.SourceConfig.map((source) => source.key));
-        adminConfig.SpecialSourceApis = Array.from(new Set(keys)).filter((key) =>
-          sourceKeySet.has(key)
-        );
-        break;
-      }
 
       case 'set_client_ad_sources': {
         const { keys } = body as { keys?: string[] };

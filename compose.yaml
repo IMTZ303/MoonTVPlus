@@ -1,0 +1,22 @@
+services:
+  moontv:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "3088:3088"
+    environment:
+      USERNAME: admin
+      PASSWORD: "${PASSWORD:?请在 .env 中设置管理员密码}"
+      PORT: "3088"
+      SQLITE_DB_PATH: /app/.data/moontv.db
+      NEXT_PUBLIC_STORAGE_TYPE: sqlite
+      ENABLE_TVBOX_SUBSCRIBE: "true"
+      NEXT_PUBLIC_SITE_NAME: MoonTV
+    volumes:
+      - ./data:/app/.data
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3088/api/server-config').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3

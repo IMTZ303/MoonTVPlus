@@ -18,7 +18,7 @@ async function terminateUserSessions(username: string, reason: string): Promise<
     invalidateUserAccessTokens(username);
     await revokeAllRefreshTokens(username);
     const storage = getStorage();
-    await storage.deleteAllPushSubscriptions?.(username);
+
     console.log(`Terminated all sessions for ${username}: ${reason}`);
   } catch (error) {
     console.error(`Failed to terminate sessions for ${username}:`, error);
@@ -40,15 +40,8 @@ const ACTIONS = [
 ] as const;
 
 export async function POST(request: NextRequest) {
-  const storageType = process.env.NEXT_PUBLIC_STORAGE_TYPE || 'localstorage';
-  if (storageType === 'localstorage') {
-    return NextResponse.json(
-      {
-        error: '不支持本地存储进行管理员配置',
-      },
-      { status: 400 }
-    );
-  }
+  const storageType = 'sqlite';
+
 
   try {
     const body = await request.json();

@@ -6,7 +6,6 @@ import { useSearchParams } from 'next/navigation';
 import { Suspense } from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { GetBangumiCalendarData } from '@/lib/bangumi.client';
 import {
   getDoubanCategories,
   getDoubanList,
@@ -14,7 +13,6 @@ import {
 } from '@/lib/douban.client';
 import { DoubanItem, DoubanResult } from '@/lib/types';
 
-import BangumiScheduleTimeline from '@/components/BangumiScheduleTimeline';
 import DoubanCardSkeleton from '@/components/DoubanCardSkeleton';
 import DoubanCustomSelector from '@/components/DoubanCustomSelector';
 import DoubanSelector from '@/components/DoubanSelector';
@@ -308,33 +306,6 @@ function DoubanPageClient() {
         } else {
           throw new Error('没有找到对应的分类');
         }
-      } else if (type === 'anime' && primarySelection === '每日放送') {
-        const calendarData = await GetBangumiCalendarData();
-        const weekdayData = calendarData.find(
-          (item) => item.weekday.en === selectedWeekday
-        );
-        if (weekdayData) {
-          data = {
-            code: 200,
-            message: 'success',
-            list: weekdayData.items
-              .filter((item) => item.images) // 过滤掉没有图片的
-              .map((item) => ({
-                id: item.id?.toString() || '',
-                title: item.name_cn || item.name,
-                poster:
-                  item.images.large ||
-                  item.images.common ||
-                  item.images.medium ||
-                  item.images.small ||
-                  item.images.grid,
-                rate: item.rating?.score?.toFixed(1) || '',
-                year: item.air_date?.split('-')?.[0] || '',
-              })),
-          };
-        } else {
-          throw new Error('没有找到对应的日期');
-        }
       } else if (type === 'anime') {
         data = await getDoubanRecommends({
           kind: primarySelection === '番剧' ? 'tv' : 'movie',
@@ -478,13 +449,6 @@ function DoubanPageClient() {
             } else {
               throw new Error('没有找到对应的分类');
             }
-          } else if (type === 'anime' && primarySelection === '每日放送') {
-            // 每日放送模式下，不进行数据请求，返回空数据
-            data = {
-              code: 200,
-              message: 'success',
-              list: [],
-            };
           } else if (type === 'anime') {
             data = await getDoubanRecommends({
               kind: primarySelection === '番剧' ? 'tv' : 'movie',
@@ -757,9 +721,7 @@ function DoubanPageClient() {
   };
 
   const getPageDescription = () => {
-    if (type === 'anime' && primarySelection === '每日放送') {
-      return '来自 Bangumi 番组计划的精选内容';
-    }
+
     return '来自豆瓣的精选内容';
   };
 
@@ -824,9 +786,7 @@ function DoubanPageClient() {
         {/* 内容展示区域 */}
         <div ref={contentRef} className='max-w-[95%] mx-auto mt-8 overflow-visible'>
           {/* 时刻表视图（每日放送） */}
-          {isScheduleView ? (
-            <BangumiScheduleTimeline weekday={selectedWeekday} />
-          ) : (
+          {(
             /* 内容网格 */
             <div className='justify-start grid grid-cols-3 gap-x-2 gap-y-12 px-0 sm:px-2 sm:grid-cols-[repeat(auto-fill,minmax(160px,1fr))] sm:gap-x-8 sm:gap-y-20'>
               {loading || !selectorsReady
@@ -845,9 +805,7 @@ function DoubanPageClient() {
                         rate={item.rate}
                         year={item.year}
                         type={type === 'movie' ? 'movie' : ''} // 电影类型严格控制，tv 不控
-                        isBangumi={
-                          type === 'anime' && primarySelection === '每日放送'
-                        }
+
                         isAnime={type === 'anime'}
                       />
                     </div>

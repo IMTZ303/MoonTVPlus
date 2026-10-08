@@ -1,8 +1,14 @@
+node_modules
+.next
+.git
+.data
+data
 .env
-.env*.local
-public/screenshot1.png
-public/screenshot2.png
-public/screenshot3.png
-
-# Android/TV native app sources are not needed in Docker image builds
-apps/
+.env.*
+!.env.example
+.maintenance
+docs
+tests
+*.log
+artifacts
+.pnpm-store

@@ -16,7 +16,7 @@ export async function POST(request: NextRequest) {
       invalidateDeviceAccessToken(authInfo.username, authInfo.tokenId);
       await revokeRefreshToken(authInfo.username, authInfo.tokenId);
       const storage = getStorage();
-      await storage.deletePushSubscriptionsByTokenId?.(authInfo.username, authInfo.tokenId);
+
     } catch (error) {
       console.error('Failed to revoke refresh token:', error);
     }

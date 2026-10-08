@@ -44,13 +44,8 @@ async function getTargetRole(username: string): Promise<'owner' | 'admin' | 'use
 }
 
 export async function GET(request: NextRequest) {
-  const storageType = process.env.NEXT_PUBLIC_STORAGE_TYPE || 'localstorage';
-  if (storageType === 'localstorage') {
-    return NextResponse.json(
-      { error: '不支持本地存储进行用户设备查询' },
-      { status: 400 }
-    );
-  }
+  const storageType = 'sqlite';
+
 
   try {
     const authInfo = getAuthInfoFromCookie(request);
@@ -104,13 +99,8 @@ export async function GET(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
-  const storageType = process.env.NEXT_PUBLIC_STORAGE_TYPE || 'localstorage';
-  if (storageType === 'localstorage') {
-    return NextResponse.json(
-      { error: '不支持本地存储进行用户设备登出' },
-      { status: 400 }
-    );
-  }
+  const storageType = 'sqlite';
+
 
   try {
     const authInfo = getAuthInfoFromCookie(request);
@@ -160,7 +150,7 @@ export async function DELETE(request: NextRequest) {
     invalidateDeviceAccessToken(targetUsername, tokenId);
     await revokeRefreshToken(targetUsername, tokenId);
     const storage = getStorage();
-    await storage.deletePushSubscriptionsByTokenId?.(targetUsername, tokenId);
+
 
     return NextResponse.json({ ok: true });
   } catch (error) {

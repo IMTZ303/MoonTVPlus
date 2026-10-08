@@ -7,15 +7,7 @@ import {
   TOKEN_CONFIG,
 } from './refresh-token';
 
-const STORAGE_TYPE =
-  (process.env.NEXT_PUBLIC_STORAGE_TYPE as
-    | 'localstorage'
-    | 'redis'
-    | 'upstash'
-    | 'kvrocks'
-    | 'd1'
-    | 'postgres'
-    | undefined) || 'localstorage';
+const STORAGE_TYPE = 'sqlite';
 
 export async function generateAuthSignature(
   data: string,
@@ -76,7 +68,7 @@ export async function generateAuthCookieValue(input: {
     authData.username = input.username;
     authData.timestamp = now;
 
-    if (!input.includePassword && STORAGE_TYPE !== 'localstorage') {
+    if (!input.includePassword && true) {
       const tokenId = generateTokenId();
       const refreshToken = generateRefreshToken();
       const refreshExpires = now + TOKEN_CONFIG.REFRESH_TOKEN_AGE;

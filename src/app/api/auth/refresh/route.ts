@@ -4,17 +4,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAuthInfoFromCookie, parseAuthInfo } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { refreshAccessToken } from '@/lib/middleware-auth';
-import { TOKEN_CONFIG } from '@/lib/refresh-token';
 
 export const runtime = 'nodejs';
 
-const STORAGE_TYPE =
-  (process.env.NEXT_PUBLIC_STORAGE_TYPE as
-    | 'localstorage'
-    | 'redis'
-    | 'upstash'
-    | 'kvrocks'
-    | undefined) || 'localstorage';
+const STORAGE_TYPE = 'sqlite';
 
 function buildRefreshResponse(authToken?: string | null) {
   const body: Record<string, unknown> = { ok: true };
@@ -38,28 +31,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  if (STORAGE_TYPE === 'localstorage') {
-    if (!authInfo.password || authInfo.password !== process.env.PASSWORD) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
 
-    const authCookie = request.cookies.get('auth');
-    if (!authCookie?.value) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    const response = buildRefreshResponse(authCookie.value);
-    const expires = new Date();
-    expires.setDate(expires.getDate() + 60);
-    response.cookies.set('auth', authCookie.value, {
-      path: '/',
-      expires,
-      sameSite: 'lax',
-      httpOnly: false,
-      secure: false,
-    });
-    return response;
-  }
 
   if (
     !authInfo.username ||

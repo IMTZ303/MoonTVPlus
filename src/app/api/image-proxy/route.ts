@@ -1,10 +1,9 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { HttpsProxyAgent } from 'https-proxy-agent';
-import nodeFetch from 'node-fetch';
 import { NextResponse } from 'next/server';
+import nodeFetch from 'node-fetch';
 
-import { getConfig } from '@/lib/config';
 
 export const runtime = 'nodejs';
 
@@ -18,71 +17,35 @@ function normalizeBaseUrl(baseUrl: string): string {
   return baseUrl.trim().replace(/\/+$/, '');
 }
 
-function applyBangumiImageBaseUrl(
-  imageUrl: string,
-  imageBaseUrl?: string
-): string {
-  const normalizedBaseUrl = normalizeBaseUrl(imageBaseUrl || '');
-  if (!normalizedBaseUrl) {
-    return imageUrl;
-  }
 
-  if (imageUrl.startsWith(`${normalizedBaseUrl}/`)) {
-    return imageUrl;
-  }
 
-  return `${normalizedBaseUrl}/${imageUrl}`;
-}
 
-function isBangumiImageUrl(url: string): boolean {
-  try {
-    const hostname = new URL(url).hostname.toLowerCase();
-    return (
-      hostname === 'lain.bgm.tv' ||
-      hostname === 'r.bgm.tv' ||
-      hostname === 'bangumi.lol' ||
-      hostname.endsWith('.bgm.tv') ||
-      hostname.endsWith('.bangumi.tv') ||
-      hostname.endsWith('.bangumi.lol')
-    );
-  } catch {
-    return false;
-  }
-}
 
 async function fetchImage(
   imageUrl: string,
   options?: { source?: string }
 ): Promise<Response> {
-  const isBangumiImage =
-    options?.source === 'bangumi' || isBangumiImageUrl(imageUrl);
+
   const headers = {
     'User-Agent':
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
     Accept: 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
-    Referer: isBangumiImage ? 'https://bgm.tv/' : 'https://movie.douban.com/',
+    Referer: 'https://movie.douban.com/',
   };
 
-  const config = isBangumiImage ? await getConfig() : null;
-  const targetUrl = isBangumiImage
-    ? applyBangumiImageBaseUrl(imageUrl, config?.SiteConfig.BangumiImageBaseUrl)
-    : imageUrl;
+  const config = null;
+  const targetUrl = imageUrl;
 
-  if (!isBangumiImage || isCloudflareEnvironment()) {
-    return fetch(targetUrl, { headers, signal: AbortSignal.timeout(15000) });
-  }
 
-  const proxy = config?.SiteConfig.BangumiProxy?.trim();
+
+  const proxy = '';
   const fetchOptions: any = {
     headers,
     signal: AbortSignal.timeout(proxy ? 30000 : 15000),
   };
 
   if (proxy) {
-    fetchOptions.agent = new HttpsProxyAgent(proxy, {
-      timeout: 30000,
-      keepAlive: false,
-    });
+    fetchOptions.agent = new HttpsProxyAgent(proxy);
   }
 
   return nodeFetch(targetUrl, fetchOptions) as unknown as Promise<Response>;

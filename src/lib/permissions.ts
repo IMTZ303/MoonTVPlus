@@ -4,8 +4,8 @@ import { getAuthInfoFromCookie } from '@/lib/auth';
 import { getConfig } from '@/lib/config';
 import { db } from '@/lib/db';
 import {
-  ALL_FEATURE_PERMISSION_KEYS,
   type FeaturePermissionKey,
+  ALL_FEATURE_PERMISSION_KEYS,
   sanitizeFeaturePermissions,
 } from '@/lib/feature-permissions';
 
@@ -30,10 +30,8 @@ function isPrivilegedRole(role?: string) {
 }
 
 async function getUserFeatureAccessMap(username: string): Promise<FeatureAccessMap> {
-  const storageType = process.env.NEXT_PUBLIC_STORAGE_TYPE || 'localstorage';
-  if (storageType === 'localstorage') {
-    return createFullFeatureAccessMap();
-  }
+  const storageType = 'sqlite';
+
 
   const userInfo = await db.getUserInfoV2(username);
   if (!userInfo || userInfo.banned) {

@@ -92,61 +92,24 @@ CREATE TABLE IF NOT EXISTS skip_configs (
 );
 
 -- 6. 弹幕过滤配置表
-CREATE TABLE IF NOT EXISTS danmaku_filter_configs (
-  username TEXT PRIMARY KEY,
-  rules TEXT NOT NULL, -- JSON array: [{"keyword": "xxx", "type": "normal", "enabled": true}]
-  FOREIGN KEY (username) REFERENCES users(username) ON DELETE CASCADE
-);
+
 
 -- 7. 通知表
-CREATE TABLE IF NOT EXISTS notifications (
-  id TEXT PRIMARY KEY,
-  username TEXT NOT NULL,
-  type TEXT NOT NULL CHECK(type IN ('favorite_update', 'system', 'announcement', 'movie_request', 'request_fulfilled')),
-  title TEXT NOT NULL,
-  message TEXT NOT NULL,
-  timestamp INTEGER NOT NULL,
-  read INTEGER DEFAULT 0,
-  metadata TEXT, -- JSON object
-  FOREIGN KEY (username) REFERENCES users(username) ON DELETE CASCADE
-);
 
-CREATE INDEX IF NOT EXISTS idx_notifications_user_time ON notifications(username, timestamp DESC);
-CREATE INDEX IF NOT EXISTS idx_notifications_user_read ON notifications(username, read, timestamp DESC);
+
+
+
 
 -- 8. 求片请求表
-CREATE TABLE IF NOT EXISTS movie_requests (
-  id TEXT PRIMARY KEY,
-  tmdb_id INTEGER,
-  title TEXT NOT NULL,
-  year TEXT,
-  media_type TEXT NOT NULL CHECK(media_type IN ('movie', 'tv')),
-  season INTEGER,
-  poster TEXT,
-  overview TEXT,
-  requested_by TEXT NOT NULL, -- JSON array: ["user1", "user2"]
-  request_count INTEGER NOT NULL DEFAULT 1,
-  status TEXT NOT NULL CHECK(status IN ('pending', 'fulfilled')) DEFAULT 'pending',
-  created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL,
-  fulfilled_at INTEGER,
-  fulfilled_source TEXT,
-  fulfilled_id TEXT
-);
 
-CREATE INDEX IF NOT EXISTS idx_movie_requests_status ON movie_requests(status, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_movie_requests_tmdb ON movie_requests(tmdb_id) WHERE tmdb_id IS NOT NULL;
+
+
+
 
 -- 9. 用户求片关联表（用于快速查询用户的求片记录）
-CREATE TABLE IF NOT EXISTS user_movie_requests (
-  username TEXT NOT NULL,
-  request_id TEXT NOT NULL,
-  PRIMARY KEY (username, request_id),
-  FOREIGN KEY (username) REFERENCES users(username) ON DELETE CASCADE,
-  FOREIGN KEY (request_id) REFERENCES movie_requests(id) ON DELETE CASCADE
-);
 
-CREATE INDEX IF NOT EXISTS idx_user_movie_requests_user ON user_movie_requests(username);
+
+
 
 -- 10. 全局配置表（键值对存储）
 CREATE TABLE IF NOT EXISTS global_config (
@@ -163,8 +126,3 @@ CREATE TABLE IF NOT EXISTS admin_config (
 );
 
 -- 12. 收藏更新检查时间表
-CREATE TABLE IF NOT EXISTS favorite_check_times (
-  username TEXT PRIMARY KEY,
-  last_check_time INTEGER NOT NULL,
-  FOREIGN KEY (username) REFERENCES users(username) ON DELETE CASCADE
-);

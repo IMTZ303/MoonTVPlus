@@ -1,218 +1,27 @@
-/* eslint-disable no-console, @typescript-eslint/no-explicit-any, @typescript-eslint/no-non-null-assertion */
-
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-var-requires */
 import { AdminConfig } from './admin.types';
-import { MusicPlayRecord } from './db.client';
-import { MangaReadRecord, MangaShelfItem } from './manga.types';
-import { BookReadRecord, BookShelfItem } from './book.types';
-import {
-  MusicV2HistoryRecord,
-  MusicV2PlaylistItem,
-  MusicV2PlaylistRecord,
-} from './music-v2';
-import {
-  DanmakuFilterConfig,
-  Favorite,
-  IStorage,
-  LocalSettingsSyncRecord,
-  PlayRecord,
-  SetLocalSettingsSyncOptions,
-  SetLocalSettingsSyncResult,
-  SkipConfig,
-} from './types';
+import { D1Storage } from './d1.db';
+import { SQLiteAdapter } from './d1-adapter';
+import { Favorite, IStorage, PlayRecord, SkipConfig } from './types';
 
-// storage type 常量: 'localstorage' | 'redis' | 'upstash' | 'kvrocks' | 'd1' | 'postgres' | 'turso'，默认 'localstorage'
-const IS_CLOUDFLARE_BUILD =
-  process.env.CF_PAGES === '1' || process.env.BUILD_TARGET === 'cloudflare';
-const STORAGE_TYPE =
-  (process.env.NEXT_PUBLIC_STORAGE_TYPE as
-    | 'localstorage'
-    | 'redis'
-    | 'upstash'
-    | 'kvrocks'
-    | 'd1'
-    | 'postgres'
-    | 'turso'
-    | undefined) || 'localstorage';
-
-// 创建存储实例
 function createStorage(): IStorage {
-  switch (STORAGE_TYPE) {
-    case 'redis':
-      if (IS_CLOUDFLARE_BUILD) {
-        throw new Error(
-          'Node Redis storage is not supported in Cloudflare builds. Use D1 or Upstash instead.'
-        );
-      }
-      const { RedisStorage } = require('./redis.db');
-      return new RedisStorage();
-    case 'upstash':
-      const { UpstashRedisStorage } = require('./upstash.db');
-      return new UpstashRedisStorage();
-    case 'kvrocks':
-      if (IS_CLOUDFLARE_BUILD) {
-        throw new Error(
-          'Kvrocks storage is not supported in Cloudflare builds. Use D1 or Upstash instead.'
-        );
-      }
-      const { KvrocksStorage } = require('./kvrocks.db');
-      return new KvrocksStorage();
-    case 'd1':
-      // D1Storage 只能在服务端使用，客户端会报错
-      if (typeof window !== 'undefined') {
-        throw new Error('D1Storage can only be used on the server side');
-      }
-      const d1Adapter = getD1Adapter();
-      // 动态导入 D1Storage 以避免客户端打包
-      const { D1Storage } = require('./d1.db');
-      return new D1Storage(d1Adapter);
-    case 'postgres':
-      // PostgresStorage 只能在服务端使用，客户端会报错
-      if (typeof window !== 'undefined') {
-        throw new Error('PostgresStorage can only be used on the server side');
-      }
-      const postgresAdapter = getPostgresAdapter();
-      // 动态导入 PostgresStorage 以避免客户端打包
-      const { PostgresStorage } = require('./postgres.db');
-      return new PostgresStorage(postgresAdapter);
-    case 'turso':
-      // TursoStorage 只能在服务端使用，客户端会报错
-      if (typeof window !== 'undefined') {
-        throw new Error('TursoStorage can only be used on the server side');
-      }
-      const tursoAdapter = getTursoAdapter();
-      // 复用 D1Storage（Turso 基于 libSQL/SQLite，SQL 语法完全兼容）
-      const { D1Storage: TursoD1Storage } = require('./d1.db');
-      return new TursoD1Storage(tursoAdapter);
-    case 'localstorage':
-    default:
-      return null as unknown as IStorage;
-  }
-}
-
-/**
- * 获取 Postgres 适配器
- * 使用 Vercel Postgres (@vercel/postgres)
- */
-function getPostgresAdapter(): any {
-  // 动态导入适配器以避免客户端打包
-  const { PostgresAdapter } = require('./postgres-adapter');
-
-  console.log('Using Vercel Postgres database');
-
-  return new PostgresAdapter();
-}
-
-/**
- * 获取 Turso 适配器
- * 使用 @libsql/client 连接 Turso (libSQL) 远程数据库
- * 适用于 EdgeOne Pages 等无内置数据库的边缘平台
- */
-function getTursoAdapter(): any {
-  // 动态导入适配器以避免客户端打包
-  const { TursoAdapter } = require('./turso-adapter');
-
-  const tursoUrl = process.env.TURSO_URL;
-  const tursoToken = process.env.TURSO_TOKEN;
-
-  if (!tursoUrl || !tursoToken) {
-    throw new Error(
-      'TURSO_URL and TURSO_TOKEN env variables must be set for Turso storage'
-    );
-  }
-
-  console.log('Using Turso (libSQL) database');
-
-  return new TursoAdapter(tursoUrl, tursoToken);
-}
-
-/**
- * 获取 D1 适配器
- * 开发环境：使用 better-sqlite3
- * 生产环境：使用 Cloudflare D1
- */
-function getD1Adapter(): any {
-  // 动态导入适配器以避免客户端打包
-  const { CloudflareD1Adapter, SQLiteAdapter } = require('./d1-adapter');
-
-  // 检查是否为 Cloudflare 构建
-  const isCloudflare =
-    process.env.CF_PAGES === '1' || process.env.BUILD_TARGET === 'cloudflare';
-
-  // 生产环境：Cloudflare Workers/Pages
-  if (isCloudflare) {
-    // 创建一个懒加载的适配器，延迟到实际使用时才获取 D1 绑定
-    let cachedAdapter: any = null;
-
-    return new Proxy(
-      {},
-      {
-        get(target, prop) {
-          // 懒加载：第一次访问时才获取真实的 D1 适配器
-          if (!cachedAdapter) {
-            try {
-              const {
-                getCloudflareContext,
-              } = require('@opennextjs/cloudflare');
-              const { env } = getCloudflareContext();
-
-              if (!env.DB) {
-                throw new Error(
-                  'D1 database binding (DB) not found in Cloudflare environment'
-                );
-              }
-
-              console.log('Using Cloudflare D1 database');
-              cachedAdapter = new CloudflareD1Adapter(env.DB);
-            } catch (error) {
-              console.error('Failed to initialize Cloudflare D1:', error);
-              throw error;
-            }
-          }
-
-          return cachedAdapter[prop];
-        },
-      }
-    );
-  }
-
-  // 开发环境：better-sqlite3
+  if (typeof window !== 'undefined') throw new Error('SQLite storage is server-only');
+  const { initSQLiteDatabase } = require('../../scripts/init-sqlite.js');
+  initSQLiteDatabase();
   const Database = require('better-sqlite3');
   const path = require('path');
-
-  const dbPath =
-    process.env.SQLITE_DB_PATH ||
-    path.join(process.cwd(), '.data', 'moontv.db');
-
-  const db = new Database(dbPath);
-  db.pragma('journal_mode = WAL'); // 启用 WAL 模式提升性能
-  db.pragma('foreign_keys = ON'); // 与 D1 保持一致，启用外键约束
-  db.pragma('busy_timeout = 5000'); // 避免启动阶段或并发写入时立即锁失败
-
-  return new SQLiteAdapter(db);
+  const database = new Database(process.env.SQLITE_DB_PATH || path.join(process.cwd(), '.data', 'moontv.db'));
+  database.pragma('journal_mode = WAL');
+  database.pragma('foreign_keys = ON');
+  database.pragma('busy_timeout = 5000');
+  return new D1Storage(new SQLiteAdapter(database));
 }
-
-// 单例存储实例
 let storageInstance: IStorage | null = null;
+export function getStorage(): IStorage { return storageInstance ||= createStorage(); }
+export function generateStorageKey(source: string, id: string): string { return source + '+' + id; }
 
-export function getStorage(): IStorage {
-  if (!storageInstance) {
-    storageInstance = createStorage();
-  }
-  return storageInstance;
-}
-
-// 工具函数：生成存储key
-export function generateStorageKey(source: string, id: string): string {
-  return `${source}+${id}`;
-}
-
-// 导出便捷方法
 export class DbManager {
-  private storage: IStorage;
-
-  constructor() {
-    this.storage = getStorage();
-  }
+  private get storage(): IStorage { return getStorage(); }
 
   // 播放记录相关方法
   async getPlayRecord(
@@ -298,271 +107,64 @@ export class DbManager {
   }
 
   // 音乐播放记录相关方法
-  async saveMusicPlayRecord(
-    userName: string,
-    platform: string,
-    id: string,
-    record: MusicPlayRecord
-  ): Promise<void> {
-    const key = generateStorageKey(platform, id);
-    await this.storage.setMusicPlayRecord(userName, key, record);
-  }
 
-  async batchSaveMusicPlayRecords(
-    userName: string,
-    records: Array<{ platform: string; id: string; record: MusicPlayRecord }>
-  ): Promise<void> {
-    const batchRecords = records.map(({ platform, id, record }) => ({
-      key: generateStorageKey(platform, id),
-      record,
-    }));
-    await this.storage.batchSetMusicPlayRecords(userName, batchRecords);
-  }
 
-  async getAllMusicPlayRecords(userName: string): Promise<{
-    [key: string]: MusicPlayRecord;
-  }> {
-    return this.storage.getAllMusicPlayRecords(userName);
-  }
 
-  async deleteMusicPlayRecord(
-    userName: string,
-    platform: string,
-    id: string
-  ): Promise<void> {
-    const key = generateStorageKey(platform, id);
-    await this.storage.deleteMusicPlayRecord(userName, key);
-  }
 
-  async clearAllMusicPlayRecords(userName: string): Promise<void> {
-    await this.storage.clearAllMusicPlayRecords(userName);
-  }
+
+
+
+
+
 
   // Music V2 历史记录相关
-  async listMusicV2History(userName: string): Promise<MusicV2HistoryRecord[]> {
-    if (typeof (this.storage as any).listMusicV2History === 'function') {
-      // 按播放队列顺序返回（createdAt ASC），
-      // 当前播放项由调用方基于 lastPlayedAt 决定。
-      return (this.storage as any).listMusicV2History(userName);
-    }
-    return [];
-  }
 
-  async upsertMusicV2History(
-    userName: string,
-    record: MusicV2HistoryRecord
-  ): Promise<void> {
-    if (typeof (this.storage as any).upsertMusicV2History === 'function') {
-      await (this.storage as any).upsertMusicV2History(userName, record);
-    }
-  }
 
-  async batchUpsertMusicV2History(
-    userName: string,
-    records: MusicV2HistoryRecord[]
-  ): Promise<void> {
-    if (typeof (this.storage as any).batchUpsertMusicV2History === 'function') {
-      await (this.storage as any).batchUpsertMusicV2History(userName, records);
-    }
-  }
 
-  async deleteMusicV2History(userName: string, songId: string): Promise<void> {
-    if (typeof (this.storage as any).deleteMusicV2History === 'function') {
-      await (this.storage as any).deleteMusicV2History(userName, songId);
-    }
-  }
 
-  async clearMusicV2History(userName: string): Promise<void> {
-    if (typeof (this.storage as any).clearMusicV2History === 'function') {
-      await (this.storage as any).clearMusicV2History(userName);
-    }
-  }
+
+
+
+
+
 
   // Music V2 歌单相关
-  async createMusicV2Playlist(
-    userName: string,
-    playlist: { id: string; name: string; description?: string; cover?: string }
-  ): Promise<void> {
-    if (typeof (this.storage as any).createMusicV2Playlist === 'function') {
-      await (this.storage as any).createMusicV2Playlist(userName, playlist);
-    }
-  }
 
-  async getMusicV2Playlist(
-    playlistId: string
-  ): Promise<MusicV2PlaylistRecord | null> {
-    if (typeof (this.storage as any).getMusicV2Playlist === 'function') {
-      return (this.storage as any).getMusicV2Playlist(playlistId);
-    }
-    return null;
-  }
 
-  async listMusicV2Playlists(
-    userName: string
-  ): Promise<MusicV2PlaylistRecord[]> {
-    if (typeof (this.storage as any).listMusicV2Playlists === 'function') {
-      return (this.storage as any).listMusicV2Playlists(userName);
-    }
-    return [];
-  }
 
-  async updateMusicV2Playlist(
-    playlistId: string,
-    updates: {
-      name?: string;
-      description?: string;
-      cover?: string;
-      song_count?: number;
-    }
-  ): Promise<void> {
-    if (typeof (this.storage as any).updateMusicV2Playlist === 'function') {
-      await (this.storage as any).updateMusicV2Playlist(playlistId, updates);
-    }
-  }
 
-  async deleteMusicV2Playlist(playlistId: string): Promise<void> {
-    if (typeof (this.storage as any).deleteMusicV2Playlist === 'function') {
-      await (this.storage as any).deleteMusicV2Playlist(playlistId);
-    }
-  }
 
-  async addMusicV2PlaylistItem(
-    playlistId: string,
-    item: MusicV2PlaylistItem
-  ): Promise<void> {
-    if (typeof (this.storage as any).addMusicV2PlaylistItem === 'function') {
-      await (this.storage as any).addMusicV2PlaylistItem(playlistId, item);
-    }
-  }
 
-  async removeMusicV2PlaylistItem(
-    playlistId: string,
-    songId: string
-  ): Promise<void> {
-    if (typeof (this.storage as any).removeMusicV2PlaylistItem === 'function') {
-      await (this.storage as any).removeMusicV2PlaylistItem(playlistId, songId);
-    }
-  }
 
-  async listMusicV2PlaylistItems(
-    playlistId: string
-  ): Promise<MusicV2PlaylistItem[]> {
-    if (typeof (this.storage as any).listMusicV2PlaylistItems === 'function') {
-      return (this.storage as any).listMusicV2PlaylistItems(playlistId);
-    }
-    return [];
-  }
 
-  async hasMusicV2PlaylistItem(
-    playlistId: string,
-    songId: string
-  ): Promise<boolean> {
-    if (typeof (this.storage as any).hasMusicV2PlaylistItem === 'function') {
-      return (this.storage as any).hasMusicV2PlaylistItem(playlistId, songId);
-    }
-    return false;
-  }
+
+
+
+
+
+
+
+
+
 
   // 音乐歌单相关方法
-  async createMusicPlaylist(
-    userName: string,
-    playlist: {
-      id: string;
-      name: string;
-      description?: string;
-      cover?: string;
-    }
-  ): Promise<void> {
-    if (typeof (this.storage as any).createMusicPlaylist === 'function') {
-      await (this.storage as any).createMusicPlaylist(userName, playlist);
-    }
-  }
 
-  async getMusicPlaylist(playlistId: string): Promise<any | null> {
-    if (typeof (this.storage as any).getMusicPlaylist === 'function') {
-      return (this.storage as any).getMusicPlaylist(playlistId);
-    }
-    return null;
-  }
 
-  async getUserMusicPlaylists(userName: string): Promise<any[]> {
-    if (typeof (this.storage as any).getUserMusicPlaylists === 'function') {
-      return (this.storage as any).getUserMusicPlaylists(userName);
-    }
-    return [];
-  }
 
-  async updateMusicPlaylist(
-    playlistId: string,
-    updates: {
-      name?: string;
-      description?: string;
-      cover?: string;
-    }
-  ): Promise<void> {
-    if (typeof (this.storage as any).updateMusicPlaylist === 'function') {
-      await (this.storage as any).updateMusicPlaylist(playlistId, updates);
-    }
-  }
 
-  async deleteMusicPlaylist(playlistId: string): Promise<void> {
-    if (typeof (this.storage as any).deleteMusicPlaylist === 'function') {
-      await (this.storage as any).deleteMusicPlaylist(playlistId);
-    }
-  }
 
-  async addSongToPlaylist(
-    playlistId: string,
-    song: {
-      platform: string;
-      id: string;
-      name: string;
-      artist: string;
-      album?: string;
-      pic?: string;
-      duration: number;
-    }
-  ): Promise<void> {
-    if (typeof (this.storage as any).addSongToPlaylist === 'function') {
-      await (this.storage as any).addSongToPlaylist(playlistId, song);
-    }
-  }
 
-  async removeSongFromPlaylist(
-    playlistId: string,
-    platform: string,
-    songId: string
-  ): Promise<void> {
-    if (typeof (this.storage as any).removeSongFromPlaylist === 'function') {
-      await (this.storage as any).removeSongFromPlaylist(
-        playlistId,
-        platform,
-        songId
-      );
-    }
-  }
 
-  async getPlaylistSongs(playlistId: string): Promise<any[]> {
-    if (typeof (this.storage as any).getPlaylistSongs === 'function') {
-      return (this.storage as any).getPlaylistSongs(playlistId);
-    }
-    return [];
-  }
 
-  async isSongInPlaylist(
-    playlistId: string,
-    platform: string,
-    songId: string
-  ): Promise<boolean> {
-    if (typeof (this.storage as any).isSongInPlaylist === 'function') {
-      return (this.storage as any).isSongInPlaylist(
-        playlistId,
-        platform,
-        songId
-      );
-    }
-    return false;
-  }
+
+
+
+
+
+
+
+
+
 
   async verifyUser(userName: string, password: string): Promise<boolean> {
     return this.storage.verifyUser(userName, password);
@@ -613,7 +215,7 @@ export class DbManager {
     role: 'owner' | 'admin' | 'user';
     banned: boolean;
     tags?: string[];
-    oidcSub?: string;
+
     enabledApis?: string[];
     created_at: number;
     playrecord_migrated?: boolean;
@@ -632,7 +234,7 @@ export class DbManager {
       role?: 'owner' | 'admin' | 'user';
       banned?: boolean;
       tags?: string[];
-      oidcSub?: string;
+
       enabledApis?: string[];
     }
   ): Promise<void> {
@@ -654,12 +256,7 @@ export class DbManager {
     return false;
   }
 
-  async getUserByOidcSub(oidcSub: string): Promise<string | null> {
-    if (typeof (this.storage as any).getUserByOidcSub === 'function') {
-      return (this.storage as any).getUserByOidcSub(oidcSub);
-    }
-    return null;
-  }
+
 
   async getUserListV2(
     offset = 0,
@@ -672,7 +269,7 @@ export class DbManager {
       role: 'owner' | 'admin' | 'user';
       banned: boolean;
       tags?: string[];
-      oidcSub?: string;
+
       enabledApis?: string[];
       created_at: number;
     }>;
@@ -776,12 +373,7 @@ export class DbManager {
         let password = '';
 
         // 如果是OIDC用户，生成随机密码（OIDC用户不需要密码登录）
-        if ((user as any).oidcSub) {
-          password = crypto.randomUUID();
-          console.log(`用户 ${user.username} (OIDC用户) 使用随机密码迁移`);
-        }
-        // 尝试从旧的存储中获取密码
-        else {
+        {
           try {
             if ((this.storage as any).client) {
               const storedPassword = await (this.storage as any).client.get(
@@ -851,172 +443,40 @@ export class DbManager {
   }
 
   // ---------- 漫画书架 ----------
-  async getMangaShelf(
-    userName: string,
-    sourceId: string,
-    mangaId: string
-  ): Promise<MangaShelfItem | null> {
-    return this.storage.getMangaShelf(
-      userName,
-      generateStorageKey(sourceId, mangaId)
-    );
-  }
 
-  async saveMangaShelf(
-    userName: string,
-    sourceId: string,
-    mangaId: string,
-    item: MangaShelfItem
-  ): Promise<void> {
-    await this.storage.setMangaShelf(
-      userName,
-      generateStorageKey(sourceId, mangaId),
-      item
-    );
-  }
 
-  async getAllMangaShelf(
-    userName: string
-  ): Promise<{ [key: string]: MangaShelfItem }> {
-    return this.storage.getAllMangaShelf(userName);
-  }
 
-  async deleteMangaShelf(
-    userName: string,
-    sourceId: string,
-    mangaId: string
-  ): Promise<void> {
-    await this.storage.deleteMangaShelf(
-      userName,
-      generateStorageKey(sourceId, mangaId)
-    );
-  }
+
+
+
+
 
   // ---------- 漫画阅读历史 ----------
-  async getMangaReadRecord(
-    userName: string,
-    sourceId: string,
-    mangaId: string
-  ): Promise<MangaReadRecord | null> {
-    return this.storage.getMangaReadRecord(
-      userName,
-      generateStorageKey(sourceId, mangaId)
-    );
-  }
 
-  async saveMangaReadRecord(
-    userName: string,
-    sourceId: string,
-    mangaId: string,
-    record: MangaReadRecord
-  ): Promise<void> {
-    await this.storage.setMangaReadRecord(
-      userName,
-      generateStorageKey(sourceId, mangaId),
-      record
-    );
-  }
 
-  async getAllMangaReadRecords(
-    userName: string
-  ): Promise<{ [key: string]: MangaReadRecord }> {
-    return this.storage.getAllMangaReadRecords(userName);
-  }
 
-  async deleteMangaReadRecord(
-    userName: string,
-    sourceId: string,
-    mangaId: string
-  ): Promise<void> {
-    await this.storage.deleteMangaReadRecord(
-      userName,
-      generateStorageKey(sourceId, mangaId)
-    );
-  }
+
+
+
+
 
   // ---------- 电子书书架 ----------
-  async getBookShelf(
-    userName: string,
-    sourceId: string,
-    bookId: string
-  ): Promise<BookShelfItem | null> {
-    return this.storage.getBookShelf(
-      userName,
-      generateStorageKey(sourceId, bookId)
-    );
-  }
 
-  async saveBookShelf(
-    userName: string,
-    sourceId: string,
-    bookId: string,
-    item: BookShelfItem
-  ): Promise<void> {
-    await this.storage.setBookShelf(
-      userName,
-      generateStorageKey(sourceId, bookId),
-      item
-    );
-  }
 
-  async getAllBookShelf(
-    userName: string
-  ): Promise<{ [key: string]: BookShelfItem }> {
-    return this.storage.getAllBookShelf(userName);
-  }
 
-  async deleteBookShelf(
-    userName: string,
-    sourceId: string,
-    bookId: string
-  ): Promise<void> {
-    await this.storage.deleteBookShelf(
-      userName,
-      generateStorageKey(sourceId, bookId)
-    );
-  }
+
+
+
+
 
   // ---------- 电子书阅读历史 ----------
-  async getBookReadRecord(
-    userName: string,
-    sourceId: string,
-    bookId: string
-  ): Promise<BookReadRecord | null> {
-    return this.storage.getBookReadRecord(
-      userName,
-      generateStorageKey(sourceId, bookId)
-    );
-  }
 
-  async saveBookReadRecord(
-    userName: string,
-    sourceId: string,
-    bookId: string,
-    record: BookReadRecord
-  ): Promise<void> {
-    await this.storage.setBookReadRecord(
-      userName,
-      generateStorageKey(sourceId, bookId),
-      record
-    );
-  }
 
-  async getAllBookReadRecords(
-    userName: string
-  ): Promise<{ [key: string]: BookReadRecord }> {
-    return this.storage.getAllBookReadRecords(userName);
-  }
 
-  async deleteBookReadRecord(
-    userName: string,
-    sourceId: string,
-    bookId: string
-  ): Promise<void> {
-    await this.storage.deleteBookReadRecord(
-      userName,
-      generateStorageKey(sourceId, bookId)
-    );
-  }
+
+
+
+
 
   // 获取全部用户名
   async getAllUsers(): Promise<string[]> {
@@ -1041,26 +501,9 @@ export class DbManager {
   }
 
   // ---------- 本地设置云同步 ----------
-  async getUserLocalSettings(
-    userName: string
-  ): Promise<LocalSettingsSyncRecord | null> {
-    if (typeof (this.storage as any).getUserLocalSettings === 'function') {
-      return (this.storage as any).getUserLocalSettings(userName);
-    }
-    return null;
-  }
 
-  async setUserLocalSettings(
-    userName: string,
-    payload: string,
-    opts: SetLocalSettingsSyncOptions
-  ): Promise<SetLocalSettingsSyncResult> {
-    if (typeof (this.storage as any).setUserLocalSettings === 'function') {
-      return (this.storage as any).setUserLocalSettings(userName, payload, opts);
-    }
-    // 存储后端不支持时静默忽略（等价于从未开启）
-    return { ok: true, version: 0, updatedAt: Date.now() };
-  }
+
+
 
   // ---------- 跳过片头片尾配置 ----------
   async getSkipConfig(
@@ -1105,29 +548,11 @@ export class DbManager {
   }
 
   // ---------- 弹幕过滤配置 ----------
-  async getDanmakuFilterConfig(
-    userName: string
-  ): Promise<DanmakuFilterConfig | null> {
-    if (typeof (this.storage as any).getDanmakuFilterConfig === 'function') {
-      return (this.storage as any).getDanmakuFilterConfig(userName);
-    }
-    return null;
-  }
 
-  async setDanmakuFilterConfig(
-    userName: string,
-    config: DanmakuFilterConfig
-  ): Promise<void> {
-    if (typeof (this.storage as any).setDanmakuFilterConfig === 'function') {
-      await (this.storage as any).setDanmakuFilterConfig(userName, config);
-    }
-  }
 
-  async deleteDanmakuFilterConfig(userName: string): Promise<void> {
-    if (typeof (this.storage as any).deleteDanmakuFilterConfig === 'function') {
-      await (this.storage as any).deleteDanmakuFilterConfig(userName);
-    }
-  }
+
+
+
 
   // ---------- 数据清理 ----------
   async clearAllData(): Promise<void> {
@@ -1160,56 +585,21 @@ export class DbManager {
 
 
   // ---------- Telegram Bot绑定相关 ----------
-  async getTelegramBinding(userName: string) {
-    if (typeof (this.storage as any).getTelegramBinding === 'function') {
-      return (this.storage as any).getTelegramBinding(userName);
-    }
-    return null;
-  }
 
-  async getTelegramBindingByTelegramUserId(telegramUserId: string) {
-    if (typeof (this.storage as any).getTelegramBindingByTelegramUserId === 'function') {
-      return (this.storage as any).getTelegramBindingByTelegramUserId(telegramUserId);
-    }
-    return null;
-  }
 
-  async upsertTelegramBinding(binding: import('./types').TelegramBindingRecord): Promise<void> {
-    if (typeof (this.storage as any).upsertTelegramBinding === 'function') {
-      await (this.storage as any).upsertTelegramBinding(binding);
-    }
-  }
 
-  async deleteTelegramBindingByUsername(userName: string): Promise<void> {
-    if (typeof (this.storage as any).deleteTelegramBindingByUsername === 'function') {
-      await (this.storage as any).deleteTelegramBindingByUsername(userName);
-    }
-  }
 
-  async deleteTelegramBindingByTelegramUserId(telegramUserId: string): Promise<void> {
-    if (typeof (this.storage as any).deleteTelegramBindingByTelegramUserId === 'function') {
-      await (this.storage as any).deleteTelegramBindingByTelegramUserId(telegramUserId);
-    }
-  }
 
-  async getTelegramBindSession(code: string) {
-    if (typeof (this.storage as any).getTelegramBindSession === 'function') {
-      return (this.storage as any).getTelegramBindSession(code);
-    }
-    return null;
-  }
 
-  async upsertTelegramBindSession(session: import('./types').TelegramBindSessionRecord): Promise<void> {
-    if (typeof (this.storage as any).upsertTelegramBindSession === 'function') {
-      await (this.storage as any).upsertTelegramBindSession(session);
-    }
-  }
 
-  async markTelegramBindSessionUsed(code: string): Promise<void> {
-    if (typeof (this.storage as any).markTelegramBindSessionUsed === 'function') {
-      await (this.storage as any).markTelegramBindSessionUsed(code);
-    }
-  }
+
+
+
+
+
+
+
+
 }
 
 // 导出默认实例

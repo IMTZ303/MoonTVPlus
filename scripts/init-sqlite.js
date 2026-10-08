@@ -3,7 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
-const MIGRATIONS_DIR = path.join(__dirname, '../migrations');
+const MIGRATIONS_DIR = path.join(process.cwd(), 'migrations');
 const MIGRATION_BASELINE_CUTOFF = '008_web_push_notifications.sql';
 
 function hashPassword(password) {
@@ -134,7 +134,8 @@ function runMigrations(db) {
 
 function ensureDefaultAdmin(db) {
   const username = process.env.USERNAME || 'admin';
-  const password = process.env.PASSWORD || '123456789';
+  const password = process.env.PASSWORD;
+  if (!password) return; // Build-time initialization creates schema only; startup requires PASSWORD.
   const passwordHash = hashPassword(password);
 
   const existingUser = db
